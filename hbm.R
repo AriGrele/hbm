@@ -1,5 +1,5 @@
-library(stringr)
-
+library(stringr);library(jagsUI);library(ggplot2)
+#################################################################################
 hbm_model=setClass('model',slots=list(
   'input'     ='call',
   'dist'      ='character',
@@ -15,6 +15,7 @@ hbm_run=setClass('jags',slots=list(
   'n.adapt'   ='numeric',
   'n.burnin'  ='numeric',
   'n.iter'    ='numeric',
+  'n.thin'    ='numeric',
   'n.chains'  ='numeric',
   'jags_model'='jagsUI',
   'output'    ='data.frame'))
@@ -24,6 +25,69 @@ hbm_data=setClass('hbm',slots=list(
   'data'        ='data.frame',
   'source_model'='character'),
   contains=c('model','jags'))
+#################################################################################
+pd=function(x){                                                                 #calculates percent of vector with same sign as vector median
+  side=sign(median(x))                                                          #sign of median
+  return(sum(side*x>0)/length(x))}                                              #return probability of direction
+#################################################################################
+sumbayes=function(hbm){                                                        #creates summary aggregation of model output
+  l=1+length(hbm@vars[[2]])
+  p=list()
+  for(i in 1:l){p[[i]]=hbm@output[,i]}
+  a=with(hbm@output,aggregate(response,p,pd))
+  a$mean=with(hbm@output,aggregate(response,p,mean))$x
+  a$CIl=with(hbm@output,aggregate(response,p,function(x) quantile(x,0.025)))$x
+  a$CIu=with(hbm@output,aggregate(response,p,function(x) quantile(x,0.975)))$x
+  a=setNames(a,c(names(hbm@output)[-c(length(hbm@output))],
+                 'PD','mean','CI_lower','CI_upper'))
+  return(a)}
+#################################################################################
+traces=function(hbm,cull=0){                                                    #create traceplots from hbm output, takes arguments of model, directory to save to, amount to cull from output
+  samples=hbm@jags_model$samples                                                #select samples and columns
+  cols=colnames(hbm@jags_model$samples[[1]])
+  allucols=unique(gsub('\\[.+]$','',cols));ucols=allucols[1]                    #correct colnames
+  for(u in allucols){                                                           #for each col:
+    stop=0
+    for(q in ucols){if(regexpr(u,q)>0|regexpr(q,u)>0){stop=1}}                  #   stop when non-unique column reached
+    if(stop==0){ucols=c(ucols,u)}}                                              #   append col after stop
+  
+  nchains=hbm@jags_model$mcmc.info$n.chains                                     #extract mcmc info from model
+  xmax=hbm@jags_model$mcmc.info$n.samples/nchains
+  plots=list();k=0                                                              #empty vars for output
+  for(u in ucols){                                                              #for each column:
+    out=list()
+    for(i in cols[regexpr(u,cols)>0]){                                          
+      k=k+1
+      e=stringr::str_extract_all(i,'(\\[\\d+,\\d+\\])|(\\[\\d+\\])')
+      pos=eval(parse(text=gsub('\\]','\\)',gsub('\\[','c\\(',e))))
+      rhat=ifelse(length(pos)==1,hbm@jags_model$Rhat[[gsub('\\[.+]$','',i)]][pos[1]],
+                  ifelse(length(pos)==0,hbm@jags_model$Rhat[[gsub('\\[.+]$','',i)]],
+                         hbm@jags_model$Rhat[[gsub('\\[.+]$','',i)]][pos[1],pos[2]]))
+      m=suppressMessages(reshape2::melt(as.data.frame(
+        coda::as.array.mcmc.list(samples[,i])))[c(T,rep(F,cull)),])
+      out[[i]]=ggplot(m)+
+        geom_line(aes(x=rep(1:xmax,nchains)[c(T,rep(F,cull))],
+                      y=value,color=variable),alpha=1/nchains*2,size=1)+
+        theme_classic()+
+        theme(text=element_text(size=65),
+              panel.border=element_rect(fill=F,size=5),
+              axis.text = element_blank())+
+        ggtitle(i,subtitle =paste('Rhat =',round(rhat,4)))+
+        guides(color='none')+
+        xlab('')+ylab('')+
+        scale_x_continuous(expand = c(0,0))+
+        scale_y_continuous(expand=c(0,0))
+      if(rhat<1.1){out[[i]]=out[[i]]+
+        scale_color_manual(values=pals::ocean.ice(nchains))}
+      else{out[[i]]=out[[i]]+
+        scale_color_manual(values=pals::ocean.matter(nchains))}
+      progress(k/length(cols),50)}
+    n=floor(sqrt(length(out)))
+    if(regexpr('traces',list.dirs(hbm@dir)<0)){
+      suppressMessages(dir.create(paste0(hbm@dir,'/traces/')))}
+    png(paste0(hbm@dir,'/traces/',hbm@name,u,'.png'),1000*n,1000*length(out)/n)
+    do.call(gridExtra::grid.arrange,c(out,ncol=n))
+    dev.off()}}
 #################################################################################
 progress=function(percent,len,char='='){                                        #print progress bar to console, takes arguments of percent progress, nchar to print at 100%, character to form the bar from
   k=round(percent*len)                                                          #nchar to print at current percent
@@ -44,7 +108,7 @@ response=function(hbm){
   return(switch(hbm@dist,
          'dnorm'=str_interp('${hbm@dist}(mu[i],tau)')))}
 #################################################################################
-ilen=function(data,v,x=1){                                                      #returns counts of factors in each level of hierarchy, take argument of dataframe, vector of col names
+ilen=function(data,v,x=1){                                                      #returns counts of factors in each level of hierarchy, take argument of data.frame, vector of col names
   o=c()                                                                         #define var
   d=as.numeric(as.factor(data[,v[x]]))                                          #characters to numbers
   if(x==length(v)){return(length(unique(d)))}                                   #return on final value
@@ -52,17 +116,169 @@ ilen=function(data,v,x=1){                                                      
 #################################################################################
 flip=function(x){                                                               #takes a named vector and returns vector of names, now named for the values they represent in original vector
   if(is.list(x)){x=x[[1]]}                                                      #edge use case
-  o=data.frame('i'=NA,'name'=NA)                                                #empty dataframe
+  o=data.frame('i'=NA,'name'=NA)                                                #empty data.frame
   for(i in 1:length(x)){o=rbind(o,data.frame('i'=x[i],'name'=names(x[i])))}     #iterate through items and append names to frame
   return(with(unique(na.omit(o)),setNames(name,i)))}                            #return renamed names
 #################################################################################
-items=function(data,v,x=1){                                                     #recursive function for generating named list from dataframe columns, take argument of dataframe, vector of col names
+items=function(data,v,x=1){                                                     #recursive function for generating named list from data.frame columns, take argument of dataframe, vector of col names
   o=c()                                                                         #define var
   d=as.numeric(as.factor(data[,v[x]]))                                          #characters to numbers
   d=setNames(d,data[,v[x]])                                                     #rename based on original values
   n=setNames(unique(data[,v[x]]),unique(d))                                     
   if(x==length(v)){return(d)}                                                   #return on final value
   else{for(i in unique(d)){o=c(o,items(data[d==i,],v,x+1))};return(o)}}         #otherwise repeat for sub-hierarchies
+#################################################################################
+semb=function(data,model,...){                                                   #write and compute Bayesian structural equation models, takes arguments of model string, data, directory to save to
+  output=new('hbm')
+  param=list(...)
+  defaults=list('name'        ='unnamed_semb',
+                'dir'         ='.',
+                'model_dir'   ='.',
+                'n.adapt'     =2000,
+                'n.burnin'    =1000,
+                'n.iter'      =10000,
+                'n.thin'      =5,  
+                'n.chains'    =4)
+  
+  default=c(list('data' =data,
+                 'input'=match.call(expand.dots=T)),
+            lapply(names(defaults),\(x)ifelse(is.null(param[[x]]),
+                                              defaults[[x]],
+                                              param[[x]]))|>
+              setNames(names(defaults)))
+  for(d in names(default)){
+    if(class(default[[d]])==class(slot(output,d))){slot(output,d)=default[[d]]}
+    else{
+      cat('Invalid input for variable "',d,'"\n',sep='')
+      return()}}
+
+  rows=str_split(model,'\n')[[1]]
+  row=c();lefts=c();rights=c();old=c()
+  for(r in 1:length(rows)){
+    item=c(LETTERS,letters)[r]
+    rights=c(rights,paste(item,'[1]',sep=''))
+    groups=str_split(rows[r],'~')[[1]]
+    left=paste(groups[1],'[i]',sep='')
+    lefts=c(lefts,left)
+    old=c(old,groups[1])
+    Right=str_split(groups[2],'\\+')[[1]]
+    new=c(paste(item,'[1]',sep=''))
+    
+    for(i in 1:length(Right)){
+      old=c(old,Right[i])
+      new=c(new,paste(item,'[',i+1,']*y.',Right[i],'[i]',sep=''))
+      rights=c(rights,paste(item,'[',i+1,']',sep=''))}
+    right=paste(new,collapse=' + ')
+    row=c(row,paste(left,right,sep=' = '))}
+  
+  row=paste(row,collapse='\n')
+  upper=paste('model {\nfor (i in 1:N){',row,'}',sep='\n')
+  new=c()
+  for(l in 1:length(lefts)){
+    base=gsub('\\[i\\]','',lefts[l])
+    new=c(new,paste('y.',lefts[l],'~dnorm(',lefts[l],',tau[',l,'])',sep=''),
+          paste('y.',base,'.sim[i]~dnorm(',lefts[l],',tau[',l,'])',sep=''),
+          paste('y.',base,'.res[i]=y.',lefts[l],'-',lefts[l],sep=''),
+          paste('y.',base,'.sres[i]=y.',base,'.sim[i]-',lefts[l],sep=''))}
+  
+  row=paste(new,collapse='\n')
+  middle=paste('for (i in 1:N){',row,'}',sep='\n')
+  new=c()
+  for(r in rights){new=c(new,paste(r,'dnorm(0.0,0.01)',sep=' ~ '))}
+  
+  lower=paste(new,collapse='\n')
+  bottom=paste('for (j in 1:',
+               length(lefts),
+               '){\nsigma[j] ~ dgamma(1,1)\ntau[j] <- pow(sigma[j], -2)\n}\n}',
+               sep='')
+  new=c();parameters=c()
+  for(l in 1:length(lefts)){
+    base=gsub('\\[i\\]','',lefts[l])
+    new=c(new,paste('y.',
+                    base,'.fit=sum(pow(y.',base,'.res[],2)/tau[',l,'])',sep=''),
+          paste('y.',
+                base,'.sfit=sum(pow(y.',base,'.sres[],2)/tau[',l,'])',sep=''))
+    parameters=c(parameters,
+                 paste('y.',base,'.sfit',sep=''),
+                 paste('y.',base,'.fit',sep=''))}
+  tail=paste(new,collapse='\n')
+  formula=paste(upper,middle,lower,tail,bottom,sep='\n')
+  
+  sink(paste0(output@dir,'/',output@name,'.jags'))
+  cat(formula,fill=T)
+  sink()
+  
+  output@model_data=list('N'=nrow(output@data))
+  for(o in unique(old)){output@model_data=c(output@model_data,
+                                     setNames(list(output@data[,o]),
+                                              paste('y.',o,sep='')))}
+  
+  inits=function(){list(sigma=rep(1,length(lefts)))}  
+  parameters=c(parameters,c(LETTERS,letters)[1:length(lefts)])
+  output@jags_model=tryCatch(jags(output@model_data,
+                                  inits,
+                                  parameters,
+                                  paste0(output@dir,'/',output@name,'.jags'),
+                                  n.chains=output@n.chains,
+                                  n.thin=output@n.thin,
+                                  n.iter=output@n.iter,
+                                  n.burnin=output@n.burnin,
+                                  parallel=F),
+                             error=function(e){print(e);return(NULL)})
+  
+  cat('\nMaking trace plots\n')
+  traces(output)
+  return(output)}
+#################################################################################
+fits=function(hbm,...){                                                         #summaries fit measures for Bayesian models, takes arguments of one or more model outputs
+  mc=match.call(expand.dots=T)
+  mods=c(list(hbm),list(...))
+  out=data.frame('response'=NA,'ppp'=NA,'DIC'=NA,
+                 'names'=NA,'intercept'=NA,'slope'=NA,'r'=NA)
+  if(length(mods)>1){
+    for(m in 1:length(mods)){
+      mc=gsub('^.+ = ','c(',mc)                                                 #bizarre functionality, if this function breaks it's probably this line
+      mc=mc[mc!='fits']
+      new=fits(mods[[m]])
+      new$names=rep(mc[m],nrow(new))
+      out=rbind(out,new)}
+    out=na.omit(out)}
+  else{
+    sims=hbm@jags_model$sims.list
+    groups=c()
+    for(n in names(sims)){
+      if(regexpr('\\.s?fit$',n)<=0){sims[[n]]=NULL}
+      else{groups[n]=gsub('\\.s?fit$','',n)}}
+    DIC=ifelse(hbm@jags_model$calc.DIC,hbm@jags_model$DIC,'NA')
+    n=names(groups)
+    par(mfrow=c(1,ceiling(length(n)/2)))
+    g=1;for(i in 1:(length(n)/2)){
+      sims=hbm@jags_model$sims.list
+      x=sims[[n[g+1]]];y=sims[[n[g]]]
+      l=lm(y~x)
+      out=rbind(out,data.frame('response'=groups[n[g]],
+                               'ppp'=pp.check(hbm@jags_model,n[g+1],n[g]),
+                               'DIC'=DIC,'names'='model','intercept'=coef(l)[1],
+                               'slope'=coef(l)[2],r=summary(l)$r.squared))
+      g=g+2}
+    par(mfrow=c(1,1))}
+  return(na.omit(out))}
+#################################################################################
+ddic=function(mod){                                                             #compares model fits, DIC for bsems, takes argument of frame of fit outputs
+  if(class(mod)!='data.frame'){cat('Not output of fits()\n')}
+  else{
+    if(length(unique(mod$names))<2){cat('Only one model input\n')}
+    dics=unique(mod$DIC)
+    n=unique(mod$names)
+    out=data.frame('name'=NA,'delta_DIC'=NA)
+    used=c()
+    for(i in 1:length(n)){
+      used=c(used,i)
+      for(j in 1:length(dics)){
+        if(i!=j&!(j %in% used)){
+          out=rbind(out,data.frame('name'=paste(n[i],n[j],sep=' - '),
+                                   'delta_DIC'=dics[i]-dics[j]))}}}
+    return(na.omit(out))}}
 #################################################################################
 format_data=function(hbm){
   hbm@model_data=list('N'=nrow(hbm@data))
@@ -228,7 +444,7 @@ run_model=function(hbm){
                               n.iter=hbm@n.iter,
                               n.chains=hbm@n.chains,
                               modules="glm",
-                              model.file=paste(hbm@model_dir,
+                              model.file=paste(hbm@model_dir,'/',
                                                hbm@model_name,
                                                '.txt',sep=''),
                               parameters.to.save=hbm@save,
@@ -362,7 +578,7 @@ write_model=function(hbm){
     (\(x)gsub('\\[i\\]',paste(c('\\[',new_i,'\\]'),collapse=''),x))()|>
     (\(x)gsub('for\\(i',paste(c('for\\(',new_i),collapse=''),x))()
   if(hbm@source_model==''){
-    writeLines(hbm@model,paste(hbm@model_dir,hbm@model_name,'.txt',sep=''))}
+    writeLines(hbm@model,paste(hbm@model_dir,'/',hbm@model_name,'.txt',sep=''))}
   
   hbm@save=c(str_interp('${as.character(hbm@input$model)[2]}.sfit'),
             str_interp('${as.character(hbm@input$model)[2]}.fit'))
@@ -375,9 +591,9 @@ hbm=function(data,model,...){
   param=list(...)
   defaults=list('name'        ='unnamed_hbm',
                 'model_name'  ='unnamed_model',
-                'dir'         ='./',
+                'dir'         ='.',
                 'dist'        ='dnorm',
-                'model_dir'   ='',
+                'model_dir'   ='.',
                 'n.adapt'     =2000,
                 'n.burnin'    =1000,
                 'n.iter'      =10000,
@@ -404,19 +620,24 @@ hbm=function(data,model,...){
     output=tryCatch(write_model(output),error=\(x){print(x);return(output)})}
   output=tryCatch(format_data(output),error=\(x){print(x);return(output)})
   output=tryCatch(run_model(output),error=\(x){print(x);return(output)})
+  cat('\nFormatting data\n')
   output=tryCatch(format_model(output),error=\(x){print(x);return(output)})
+  cat('\nmaking trace plots\n')
+  traces(output,cull=9)
   
-  
-  return(output)
-}
-#o=hbm(data.frame('herb'=1:10,'div'=1:10,'flood'=1,'site'='a','sex'='moose'),herb~div:flood+(site+sex),name='testing')
+  write.csv(sumbayes(output),
+            paste0(output@dir,'/',output@name,'.csv'),row.names=F)
+  for(n in names(output@jags_model$Rhat)){
+    if(max(output@jags_model$Rhat[[n]],na.rm=T)>1.1){
+      cat(rep('#',50),'\nRhat Greater than 1.1 in\n',
+          paste(output@input,collapse = ' '),'\n',rep('#',50),'\n',sep='')
+      break}}
+  return(output)}
+#################################################################################
 
-source('C:/Users/Ari/Documents/Scripts/helper functions/generators.R')
-library(ggplot2)
-
-data=data.frame('mass'=rep(0:1,each=50),'length'=rep(0:1,each=50)+rnorm(100,1,.1),'sex'=rep(c('0','1','0','1'),each=25),'b'=rep(c('A','B'),50))
+data=data.frame('mass'=rep(0:1,each=50),'length'=rep(0:1,each=50)+rnorm(100,1,1),'sex'=rep(c('0','1','0','1'),each=25),'b'=rep(c('A','B'),50))
 data$length[data$sex=='1']=5*abs(data$length[data$sex=='1'])
-#data$length[data$site=='B']=-1*abs(data$length[data$site=='B'])
+data$length[data$site=='B']=1+2*abs(data$length[data$site=='B'])
 data$site=data$b
 ggplot(data,aes(x=mass,y=length,color=as.factor(sex)))+
   geom_point()+
@@ -425,5 +646,9 @@ ggplot(data,aes(x=mass,y=length,color=as.factor(sex)))+
   theme_classic()
 
 o=hbm(data,length~mass:sex+(site))
+sumbayes(o)                                                                              
 
-                                                                                
+data$sex=as.numeric(data$sex)
+model='mass~length+sex
+length~sex'
+b=semb(data,model)
