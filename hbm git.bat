@@ -1,3 +1,3 @@
 git add .
 git commit -m "up to date"
-git push origin master
+git push origin main
