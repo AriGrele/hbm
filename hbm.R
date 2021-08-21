@@ -1,6 +1,6 @@
 library(stringr);library(jagsUI);library(ggplot2)
 #################################################################################
-hbm_model=setClass('model',slots=list(
+model_data=setClass('model_data',slots=list(
   'input'     ='call',
   'dist'      ='character',
   'model_dir' ='character',
@@ -11,7 +11,7 @@ hbm_model=setClass('model',slots=list(
   'model_data'='list',
   'scales'    ='vector',
   'save'      ='vector'))
-hbm_run=setClass('jags',slots=list(
+run_model=setClass('run_model',slots=list(
   'n.adapt'   ='numeric',
   'n.burnin'  ='numeric',
   'n.iter'    ='numeric',
@@ -19,18 +19,25 @@ hbm_run=setClass('jags',slots=list(
   'n.chains'  ='numeric',
   'jags_model'='jagsUI',
   'output'    ='data.frame'))
-hbm_data=setClass('hbm',slots=list(
+hbm_data=setClass('hbm_object',slots=list(
   'name'        ='character',
   'dir'         ='character',
   'data'        ='data.frame',
   'source_model'='character'),
-  contains=c('model','jags'))
+  contains=c('model_data','run_model'))
+semb_data=setClass('semb_object',slots=list(
+  'name'        ='character',
+  'dir'         ='character',
+  'data'        ='data.frame',
+  'source_model'='character'),
+  contains=c('model_data','run_model'))
 #################################################################################
 pd=function(x){                                                                 #calculates percent of vector with same sign as vector median
   side=sign(median(x))                                                          #sign of median
   return(sum(side*x>0)/length(x))}                                              #return probability of direction
 #################################################################################
-sumbayes=function(hbm){                                                        #creates summary aggregation of model output
+setGeneric("summary", function(hbm) standardGeneric("summary"))
+setMethod("summary","hbm_object",function(hbm){                                 #creates summary aggregation of model output
   l=1+length(hbm@vars[[2]])
   p=list()
   for(i in 1:l){p[[i]]=hbm@output[,i]}
@@ -40,9 +47,10 @@ sumbayes=function(hbm){                                                        #
   a$CIu=with(hbm@output,aggregate(response,p,function(x) quantile(x,0.975)))$x
   a=setNames(a,c(names(hbm@output)[-c(length(hbm@output))],
                  'PD','mean','CI_lower','CI_upper'))
-  return(a)}
+  return(a)})
 #################################################################################
-traces=function(hbm,cull=0){                                                    #create traceplots from hbm output, takes arguments of model, directory to save to, amount to cull from output
+setGeneric("traces", function(hbm,cull) standardGeneric("traces"))
+setMethod("traces","hbm_object",function(hbm,cull=0){                           #create traceplots from hbm output, takes arguments of model, directory to save to, amount to cull from output
   samples=hbm@jags_model$samples                                                #select samples and columns
   cols=colnames(hbm@jags_model$samples[[1]])
   allucols=unique(gsub('\\[.+]$','',cols));ucols=allucols[1]                    #correct colnames
@@ -87,7 +95,7 @@ traces=function(hbm,cull=0){                                                    
       suppressMessages(dir.create(paste0(hbm@dir,'/traces/')))}
     png(paste0(hbm@dir,'/traces/',hbm@name,u,'.png'),1000*n,1000*length(out)/n)
     do.call(gridExtra::grid.arrange,c(out,ncol=n))
-    dev.off()}}
+    dev.off()}})
 #################################################################################
 progress=function(percent,len,char='='){                                        #print progress bar to console, takes arguments of percent progress, nchar to print at 100%, character to form the bar from
   k=round(percent*len)                                                          #nchar to print at current percent
@@ -230,7 +238,8 @@ semb=function(data,model,...){                                                  
   traces(output)
   return(output)}
 #################################################################################
-fits=function(hbm,...){                                                         #summaries fit measures for Bayesian models, takes arguments of one or more model outputs
+setGeneric("fits", function(hbm,...) standardGeneric("fits"))
+setMethod("fits","semb_object",function(hbm,...){                               #summaries fit measures for Bayesian models, takes arguments of one or more model outputs
   mc=match.call(expand.dots=T)
   mods=c(list(hbm),list(...))
   out=data.frame('response'=NA,'ppp'=NA,'DIC'=NA,
@@ -262,7 +271,7 @@ fits=function(hbm,...){                                                         
                                'slope'=coef(l)[2],r=summary(l)$r.squared))
       g=g+2}
     par(mfrow=c(1,1))}
-  return(na.omit(out))}
+  return(na.omit(out))})
 #################################################################################
 ddic=function(mod){                                                             #compares model fits, DIC for bsems, takes argument of frame of fit outputs
   if(class(mod)!='data.frame'){cat('Not output of fits()\n')}
@@ -280,7 +289,8 @@ ddic=function(mod){                                                             
                                    'delta_DIC'=dics[i]-dics[j]))}}}
     return(na.omit(out))}}
 #################################################################################
-format_data=function(hbm){
+setGeneric("format_data", function(hbm) standardGeneric("format_data"))
+setMethod("format_data","hbm_object",function(hbm){
   hbm@model_data=list('N'=nrow(hbm@data))
   hbm@model_data[as.character(hbm@input$model)[2]]=
     list(hbm@data[,as.character(hbm@input$model)[2]])
@@ -311,9 +321,10 @@ format_data=function(hbm){
       else{
         hbm@scales[[m]]=1
         hbm@model_data[[m]]=as.numeric(hbm@model_data[[m]])}}}
-  return(hbm)}
+  return(hbm)})
 #################################################################################
-format_model=function(hbm){
+setGeneric("format_model", function(hbm) standardGeneric("format_model"))
+setMethod("format_model","hbm_object",function(hbm){
   vars=hbm@vars[[2]][-1]
   o=as.data.frame(matrix(nrow=hbm@model_data$N,ncol=2*length(vars)))|>
     setNames(rep(vars,2))
@@ -435,9 +446,10 @@ format_model=function(hbm){
     progress(match(sb,names(hbm@scales[-1]))/length(names(hbm@scales[-1])),50)}
   hbm@output=out
   for(i in 1:nrow(filter)){hbm@output[,1][out[,1]==filter[,1][i]]=filter[,3][i]}
-  return(hbm)}
+  return(hbm)})
 #################################################################################
-run_model=function(hbm){
+setGeneric("run_model", function(hbm) standardGeneric("run_model"))
+setMethod("run_model","hbm_object",function(hbm){
   hbm@jags_model=jagsUI::jags(data=hbm@model_data,
                               n.adapt=hbm@n.adapt,
                               n.burnin=hbm@n.burnin,
@@ -450,9 +462,10 @@ run_model=function(hbm){
                               parameters.to.save=hbm@save,
                               verbose=T,
                               DIC=F)
-  return(hbm)}
+  return(hbm)})
 #################################################################################
-write_model=function(hbm){
+setGeneric("write_model", function(hbm) standardGeneric("write_model"))
+setMethod("write_model","hbm_object",function(hbm){
   slot(hbm,'variables')=c(as.character(hbm@input$model)[2],
                           strsplit(gsub('\\((.+)\\)','\\1',
                                         as.character(hbm@input$model)[3]),
@@ -584,10 +597,10 @@ write_model=function(hbm){
             str_interp('${as.character(hbm@input$model)[2]}.fit'))
   for(i in rv){hbm@save=c(hbm@save,i)}
   hbm@save=gsub('\\[.+\\]','',hbm@save)
-  return(hbm)}
+  return(hbm)})
 #################################################################################
 hbm=function(data,model,...){
-  output=new('hbm')
+  output=new('hbm_object')
   param=list(...)
   defaults=list('name'        ='unnamed_hbm',
                 'model_name'  ='unnamed_model',
@@ -625,7 +638,7 @@ hbm=function(data,model,...){
   cat('\nmaking trace plots\n')
   traces(output,cull=9)
   
-  write.csv(sumbayes(output),
+  write.csv(summary(output),
             paste0(output@dir,'/',output@name,'.csv'),row.names=F)
   for(n in names(output@jags_model$Rhat)){
     if(max(output@jags_model$Rhat[[n]],na.rm=T)>1.1){
@@ -635,6 +648,8 @@ hbm=function(data,model,...){
   return(output)}
 #################################################################################
 
+
+#################################################################################
 data=data.frame('mass'=rep(0:1,each=50),'length'=rep(0:1,each=50)+rnorm(100,1,1),'sex'=rep(c('0','1','0','1'),each=25),'b'=rep(c('A','B'),50))
 data$length[data$sex=='1']=5*abs(data$length[data$sex=='1'])
 data$length[data$site=='B']=1+2*abs(data$length[data$site=='B'])
@@ -646,7 +661,7 @@ ggplot(data,aes(x=mass,y=length,color=as.factor(sex)))+
   theme_classic()
 
 o=hbm(data,length~mass:sex+(site))
-sumbayes(o)                                                                              
+summary(o)                                                                              
 
 data$sex=as.numeric(data$sex)
 model='mass~length+sex
