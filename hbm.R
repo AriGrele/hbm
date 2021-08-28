@@ -106,6 +106,18 @@ progress=function(percent,len,char='='){                                        
 #################################################################################
 expand=function(x){o=c();for(i in x){o=c(o,1:i)};return(o)}
 #################################################################################
+gap=function(l,u,count){                                                        #returns missing values, takes argument of lower range vector, upper value, count
+  o=c(0);n=u[1];i=1
+  for(q in 2:length(l)){
+    if(l[q]==0&(l[q-1]==count[i]|l[q-1]==0)){i=i+1;n=u[i];o=c(o,0)}
+    else{o=c(o,n)}}
+  return(o)}
+#################################################################################
+repframe=function(d,n){                                                         #acts like rep() for data.frames, takes arguments of data.frame, count
+  out=setNames(as.data.frame(matrix(nrow=n,ncol=length(d))),names(d))
+  for(i in 1:length(d)){out[,i]=rep(d[,i],n)}
+  return(out)}
+#################################################################################
 chunk=function(ar,len){                                                         #breaks array into equal chunks, takes arguments of array, chunk length
   o=list();c=0                                                                  #define vars
   for(i in len*0:(length(ar)/len-1)){i=i+1;c=c+1;o[[c]]=ar[(i):(i+len-1)]}      #split into groups of set length, append to list
@@ -647,23 +659,209 @@ hbm=function(data,model,...){
       break}}
   return(output)}
 #################################################################################
+wave=function(data,var,s){                                                      #create single distribution plots, takes argument of model output, focal variables, scale
+  g=ggplot(data)+
+    geom_vline(xintercept=0,size=2*s)+
+    geom_hline(yintercept=0,size=2*s)+
+    #facet_grid(reformulate(var$var[1]))+
+    geom_density(aes_string(x='response',color=var$var[1]),size=s)
+  return(list(g))}
 
+wave2=function(data,var,s){                                                     #create multi-distribution plots, takes argument of model output, focal variables, scale
+  data=subset(data,!(data[,var$var[1]]=='all'&data[,var$var[2]]=='all'))
+  out=list()
+  for(g in unique(data[,var$var[2]])){
+    out[[g]]=ggplot()+
+      geom_vline(xintercept = 0,size=2*s,linetype='dashed')+
+      geom_density(data=data[data[,var$var[1]]=='all'&data[,var$var[2]]==g,],
+                   aes_string(x='response',group=var$var[2]),size=1.5*s,
+                   fill='black',color='black',alpha=.5)+
+      geom_density(data=data[data[,var$var[1]]!='all'&data[,var$var[2]]==g,],
+                   aes_string(x='response',color=var$var[1]),size=1.5*s)}
+  return(out)}
+
+setGeneric("ocean", function(hbm,...) standardGeneric("ocean"))
+setMethod("ocean","hbm_object",function(hbm,vars,fill='lower',s=1){             #create groups of waveplots, takes arguments of model output, focal groups, fill groups, scale
+  data=hbm@output
+  out=list()
+  for(g in vars){
+    h=data[regexpr(g,data$lower)>0,]
+    v=hbmvar(h,c(fill))
+    if(length(v$var)==1){out[[g]]=wave(h,v,s)}
+    else{if(v$var[2]=='upper'){out[[g]]=wave(h,v,s)}
+      else{out[[g]]=wave2(h,v,s)}}}
+  return(unlist(out, recursive = FALSE))})
+#################################################################################
+dotplot=function(data,var,s){                                                   #create single dotplot, takes argument of model output, focal variables, scale
+  df=setNames(as.data.frame(matrix(ncol=4)),c('variable','y2.5','y97.5','y50'))
+  for(i in unique(data[,var$var[1]])){
+    q=data$response[data[,var$var[1]]==i]
+    df=rbind(df,data.frame('variable'=i,'y2.5'=quantile(q,0.05),
+                           'y97.5'=quantile(q,0.95),'y50'=quantile(q,.5)))}
+  g=ggplot(data)+
+    geom_hline(yintercept=0,size=2*s)+
+    geom_boxplot(data=na.omit(df),width=.05*s,lwd=s,
+                 aes(x=as.factor(variable),ymin = y2.5, lower = y2.5, 
+                     middle = y50, upper = y97.5, ymax = y97.5),
+                 stat = "identity",fill='black')+
+    geom_point(data=na.omit(df),aes(x=as.factor(variable),y=y50),size=5*s)
+  
+  return(g)}
+
+dotplot2=function(data,var,s){                                                  #create multi-dotplots (new version), takes argument of model output, focal variables, scale
+  df=setNames(as.data.frame(matrix(ncol=5)),
+              c(var$var[1],'v2','y2.5','y97.5','y50'))
+  for(i in unique(data[,var$var[1]])){
+    for(j in unique(data[,var$var[2]])){
+      q=data$response[data[,var$var[1]]==i&data[,var$var[2]]==j]
+      df=rbind(df,setNames(data.frame('v'=i,'v2'=j,
+                                      'y2.5'=quantile(q,0.05),
+                                      'y97.5'=quantile(q,0.95),
+                                      'y50'=quantile(q,.5)),
+                           c(var$var[1],'v2','y2.5','y97.5','y50')))}}
+  g=ggplot(data)+
+    geom_hline(yintercept=0,size=2*s)+
+    facet_grid(reformulate(var$var[1]))+
+    geom_boxplot(data=na.omit(df),
+                 width=.05*s,lwd=s,position = position_dodge(.9),
+                 aes(x=as.factor(v2),group=as.factor(v2),
+                     ymin = y2.5, lower = y2.5, middle = y50, 
+                     upper = y97.5, ymax = y97.5),
+                 stat = "identity",fill='black')+
+    geom_point(data=na.omit(df),aes(x=as.factor(v2),
+                                    group=as.factor(v2),y=y50),size=5*s)
+  return(g)}
+
+setGeneric("polka", function(hbm,...) standardGeneric("polka"))
+setMethod("polka","hbm_object",function(hbm,vars,fill='lower',s=1){             #create groups of dotplots, takes arguments of model output, focal groups, fill group, scale
+  data=hbm@output
+  out=list()
+  for(g in vars){
+    h=data[regexpr(g,data$lower)>0,]
+    v=hbmvar(h,c(fill))
+    if(length(v$var)==1){out[[g]]=dotplot(h,v,s)}
+    else{if(v$var[2]=='upper'){out[[g]]=dotplot(h,v,s)}
+      else{out[[g]]=dotplot2(h,v,s)}}}
+  return(out)})
+#################################################################################
+setGeneric("hbmgroup", function(hbm,...) standardGeneric("hbmgroup"))
+setMethod("hbmgroup","hbm_object",function(hbm,groups){                         #Selects specific subsets of data based on focal group, takes arguments of model output, focal groups
+  v=hbm@vars[[2]]
+  out=setNames(as.data.frame(matrix(ncol=length(hbm@output))),names(hbm@output))
+  for(g in groups){
+    if(!(g %in% v)){out=rbind(out,hbm@output[regexpr(g,hbm@output$lower)>0,])}
+    else{out=rbind(out,hbm@output[regexpr('all',hbm@output[,g])>0,])}}
+  for(g in groups){
+    if(!(g %in% v)){out=out[regexpr(g,out$lower)>0,]}
+    else{out=out[regexpr('all',out[,g])>0,]}}
+  return(na.omit(out))})
+
+hbmvar=function(data,groups){                                                   #selects specific variable names based on focal groups, takes arguments of model output, focal groups
+  n=names(data)
+  filter=c()
+  for(g in groups){
+    if(g %in% n){
+      if(match(g,n)==1){Var=c(g)}
+      else{Var=c(g,n[match(g,n)-1])}}
+    else{filter=c(filter,g)}}
+  return(list('var'=Var,'filter'=filter))}
+
+mgroup=function(data,groups){                                                   #creates data groupings based on focal group names, takes arguments of model output, focal groups
+  k=0
+  for(g in groups){
+    if(k==0){h=hbmgroup(data,c(g));k=1}
+    else{h=rbind(h,hbmgroup(data,c(g)))}}
+  return(h)}
 
 #################################################################################
-data=data.frame('mass'=rep(0:1,each=50),'length'=rep(0:1,each=50)+rnorm(100,1,1),'sex'=rep(c('0','1','0','1'),each=25),'b'=rep(c('A','B'),50))
+cello=function(data,var,s,label='none',lsize=1){                                #create single violin plot with CI bars, takes argument of model output, focal variables, scale
+  df=setNames(as.data.frame(matrix(ncol=5)),c('variable','y2.5','y97.5','y50','lab'))
+  for(i in unique(data[,var$var[1]])){
+    q=data$response[data[,var$var[1]]==i]
+    df=rbind(df,data.frame('variable'=i,'y2.5'=quantile(q,0.05),
+                           'y97.5'=quantile(q,0.95),'y50'=quantile(q,.5),
+                           'lab'=paste0(sign(median(q))*round(100*pd(q),1),'%')))}
+  g=ggplot(data)+
+    geom_hline(yintercept=0,size=2*s)+
+    geom_violin(aes_string(x=var$var[1],y='response',
+                           fill=var$var[1]),size=s,scale='width')+
+    geom_boxplot(data=na.omit(df),width=.05*s,lwd=s,
+                 aes(x=as.factor(variable),
+                     ymin = y2.5, lower = y2.5, middle = y50, 
+                     upper = y97.5, ymax = y97.5),stat = "identity")
+  if(label!='none'){g=g+geom_text(data=na.omit(df),aes(label=lab,
+                                                       x=as.factor(variable),
+                                                       y=label),size=lsize)}
+  
+  return(g)}
+
+cello2=function(data,var,s){                                                    #create multi-violin plots with CI bars, takes argument of model output, focal variables, scale
+  df=setNames(as.data.frame(matrix(ncol=5)),
+              c(var$var[1],'v2','y2.5','y97.5','y50'))
+  for(i in unique(data[,var$var[1]])){
+    for(j in unique(data[,var$var[2]])){
+      q=data$response[data[,var$var[1]]==i&data[,var$var[2]]==j]
+      df=rbind(df,setNames(data.frame('v'=i,'v2'=j,'y2.5'=quantile(q,0.05),
+                                      'y97.5'=quantile(q,0.95),
+                                      'y50'=quantile(q,.5)),
+                           c(var$var[1],'v2','y2.5','y97.5','y50')))}}
+  g=ggplot(data)+
+    geom_hline(yintercept=0,size=2*s)+
+    facet_grid(reformulate(var$var[1]))+
+    geom_violin(aes_string(x=var$var[2],y='response',
+                           fill=var$var[2]),size=s,scale='width')+
+    geom_boxplot(data=na.omit(df),width=.05*s,lwd=s,position=position_dodge(.9),
+                 aes(x=as.factor(v2),group=as.factor(v2),
+                     ymin = y2.5, lower = y2.5, middle = y50, 
+                     upper = y97.5, ymax = y97.5),stat = "identity")
+  return(g)}
+
+setGeneric("bass", function(hbm,...) standardGeneric("bass"))
+setMethod("bass","hbm_object",function(hbm,groups,fill='lower',s=1,label='none',lsize=1){               #create groups cello plots, takes arguments of model output, focal groups, fill group, scale
+  data=hbm@output
+  out=list()
+  for(g in groups){
+    h=data[regexpr(g,data$lower)>0,]
+    v=hbmvar(h,c(fill))
+    if(length(v$var)==1){out[[g]]=cello(h,v,s,label=label,lsize=lsize)}
+    else{if(v$var[2]=='upper'){out[[g]]=cello(h,v,s,label=label,lsize=lsize)}
+      else{out[[g]]=cello2(h,v,s)}}}
+  return(out)})
+####examples#####################################################################
+#generate data
+data=data.frame('mass'=rep(0:1,each=100),
+                'length'=2*rep(0:1,each=100)+rnorm(200,1,.1),
+                'sex'=rep(c(1,2,2,1),each=50),
+                'b'=rep(letters[1:4],50))
 data$length[data$sex=='1']=5*abs(data$length[data$sex=='1'])
-data$length[data$site=='B']=1+2*abs(data$length[data$site=='B'])
+data$length[c(T,F)]=2+2*abs(data$length[c(T,F)])
 data$site=data$b
 ggplot(data,aes(x=mass,y=length,color=as.factor(sex)))+
   geom_point()+
   geom_smooth(method=lm,alpha=0)+
   facet_grid(cols=vars(b))+
   theme_classic()
+#single level
+o=hbm(rbind(data,data),length~mass+(site))
+summary(o) 
+ocean(o,'mass','site')[[1]]
+polka(o,'mass','site')[[1]]
+bass(o,'mass','site')[[1]]
 
+#multiple levels
+o=hbm(data,length~mass+(site+sex))
+summary(o) 
+ocean(o,'mass','sex')[[1]]
+polka(o,'mass','sex')[[1]]
+bass(o,'mass','sex')[[1]]
+
+#interaction
 o=hbm(data,length~mass:sex+(site))
-summary(o)                                                                              
+summary(o) 
+ocean(o,'mass','site')[[1]]+coord_cartesian(xlim=c(-10,30))
 
-data$sex=as.numeric(data$sex)
-model='mass~length+sex
-length~sex'
-b=semb(data,model)
+
+# data$sex=as.numeric(data$sex)
+# model='mass~length+sex
+# length~sex'
+# b=semb(data,model)
