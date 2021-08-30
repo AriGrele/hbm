@@ -4,28 +4,25 @@ for(i in 1:N){
 	length.sim[i]~dnorm(mu[i],tau)
 	length.res[i]=length[i]-mu[i]
 	length.sres[i]=length.sim[i]-mu[i]
-	mu[i]=alpha+alpha_site[site[i]]+alpha_sex[site[i],sex[i]]+
-	(beta_mass+beta_mass_site[site[i]]+beta_mass_sex[site[i],sex[i]])*mass[i]}
+	mu[i]=alpha+alpha_site[site[i]]+(Alpha_int_sex+Alpha_int_sex_site[site[i]])*sex[i]+
+	(beta_mass+beta_mass_site[site[i]]+(beta_int_sexmass+beta_int_sexmass_site[site[i]])*sex[i])*mass[i]}
 for(a in 1:Nsite){
 	alpha_site[a]~dnorm(0,atau_site)
 	beta_mass_site[a]~dnorm(0,tau_site)
-for(b in 1:Nsex[a]){
-	alpha_sex[a,b]~dnorm(0,atau_sex)
-	beta_mass_sex[a,b]~dnorm(0,tau_sex)}}
+	beta_int_sexmass_site[a]~dnorm(0,tau_site)
+	Alpha_int_sex_site[a]~dnorm(0,atau_site)}
 sigma~dunif(0,100)
 tau=1/(sigma*sigma)
 sigma_site~dunif(0,100)
 tau_site=1/(sigma_site*sigma_site)
-sigma_sex~dunif(0,100)
-tau_sex=1/(sigma_sex*sigma_sex)
 asigma~dunif(0,100)
 atau=1/(sigma*sigma)
 asigma_site~dunif(0,100)
 atau_site=1/(sigma_site*sigma_site)
-asigma_sex~dunif(0,100)
-atau_sex=1/(sigma_sex*sigma_sex)
 alpha~dnorm(0,0.01)
 beta_mass~dnorm(0,0.01)
+beta_int_sexmass~dnorm(0,0.01)
+Alpha_int_sex~dnorm(0,0.01)
 length.fit=sum(pow(length.res[],2)/tau)
 length.sfit=sum(pow(length.sres[],2)/tau)
 }

@@ -91,7 +91,7 @@ setMethod("traces","hbm_object",function(hbm,cull=0){                           
         scale_color_manual(values=pals::ocean.matter(nchains))}
       progress(k/length(cols),50)}
     n=floor(sqrt(length(out)))
-    if(regexpr('traces',list.dirs(hbm@dir)<0)){
+    if(mean(regexpr('traces',list.dirs(hbm@dir))<0)==1){
       suppressMessages(dir.create(paste0(hbm@dir,'/traces/')))}
     png(paste0(hbm@dir,'/traces/',hbm@name,u,'.png'),1000*n,1000*length(out)/n)
     do.call(gridExtra::grid.arrange,c(out,ncol=n))
@@ -149,7 +149,7 @@ items=function(data,v,x=1){                                                     
   else{for(i in unique(d)){o=c(o,items(data[d==i,],v,x+1))};return(o)}}         #otherwise repeat for sub-hierarchies
 #################################################################################
 semb=function(data,model,...){                                                   #write and compute Bayesian structural equation models, takes arguments of model string, data, directory to save to
-  output=new('hbm')
+  output=new('semb_object')
   param=list(...)
   defaults=list('name'        ='unnamed_semb',
                 'dir'         ='.',
@@ -515,7 +515,7 @@ setMethod("write_model","hbm_object",function(hbm){
   for(q in hbm@vars[[2]]){
     if(q!=''){hbm@data[q]=factor(hbm@data[,q],levels=unique(hbm@data[,q]))}}
   
-  hbm@data=hbm@data[order(hbm@data[hbm@vars[[2]][1]]),]                         ####this one probably gives the xtfrm warning
+  hbm@data=hbm@data[order(hbm@data[,hbm@vars[[2]][1]]),]                        
   rv=is=c();c=0
   hbm@vars[[2]]=tryCatch(c('',hbm@vars[[2]]),error=function(e){c('')})
   x=paste(c('',rep('[',length(hbm@vars[[2]])-1)),hbm@vars[[2]],sep='')|>
@@ -660,36 +660,53 @@ hbm=function(data,model,...){
   return(output)}
 #################################################################################
 wave=function(data,var,s){                                                      #create single distribution plots, takes argument of model output, focal variables, scale
-  g=ggplot(data)+
-    geom_vline(xintercept=0,size=2*s)+
-    geom_hline(yintercept=0,size=2*s)+
-    #facet_grid(reformulate(var$var[1]))+
-    geom_density(aes_string(x='response',color=var$var[1]),size=s)
+  g=ggplot()+
+    geom_vline(xintercept = 0,size=2*s,linetype='dashed')+
+    geom_density(data=data[data[,var$var[1]]=='all',],
+                 aes_string(x='response',group=var$var[1]),size=1.5*s,
+                 fill='black',color='black',alpha=.5)+
+    geom_density(data=data[data[,var$var[1]]!='all',],
+                 aes_string(x='response',color=var$var[1]),size=1.5*s)
   return(list(g))}
 
 wave2=function(data,var,s){                                                     #create multi-distribution plots, takes argument of model output, focal variables, scale
   data=subset(data,!(data[,var$var[1]]=='all'&data[,var$var[2]]=='all'))
-  out=list()
-  for(g in unique(data[,var$var[2]])){
-    out[[g]]=ggplot()+
+  out=ggplot()+
       geom_vline(xintercept = 0,size=2*s,linetype='dashed')+
-      geom_density(data=data[data[,var$var[1]]=='all'&data[,var$var[2]]==g,],
+      geom_density(data=data[data[,var$var[1]]=='all',],
                    aes_string(x='response',group=var$var[2]),size=1.5*s,
                    fill='black',color='black',alpha=.5)+
-      geom_density(data=data[data[,var$var[1]]!='all'&data[,var$var[2]]==g,],
-                   aes_string(x='response',color=var$var[1]),size=1.5*s)}
-  return(out)}
+      geom_density(data=data[data[,var$var[1]]!='all',],
+                   aes_string(x='response',color=var$var[1]),size=1.5*s)+
+      facet_grid(reformulate(var$var[2]))
+  return(list(out))}
+
+wave3=function(data,var,s,int){                                                     #create interaction + distribution plots, takes argument of model output, focal variables, scale
+  data=subset(data,!(data[,var$var[1]]=='all'))
+  data$interact=as.factor(regexpr(int,data$lower)>0)
+  print(unique(data[-4]))
+  out=ggplot()+
+    geom_vline(xintercept = 0,size=2*s,linetype='dashed')+
+    geom_density(data=data[data[,var$var[1]]=='all',],
+                 aes_string(x='response',group=var$var[1]),size=1.5*s,
+                 fill='black',color='black',alpha=.5)+
+    geom_density(data=data[data[,var$var[1]]!='all',],
+                 aes_string(x='response',y='..scaled..',color='interact'),size=1.5*s)+
+    facet_grid(reformulate(var$var[1]))
+  return(list(out))}
 
 setGeneric("ocean", function(hbm,...) standardGeneric("ocean"))
-setMethod("ocean","hbm_object",function(hbm,vars,fill='lower',s=1){             #create groups of waveplots, takes arguments of model output, focal groups, fill groups, scale
+setMethod("ocean","hbm_object",function(hbm,vars,fill='lower',s=1,interaction='none'){             #create groups of waveplots, takes arguments of model output, focal groups, fill groups, scale
   data=hbm@output
   out=list()
+  print(interaction=='none')
   for(g in vars){
     h=data[regexpr(g,data$lower)>0,]
     v=hbmvar(h,c(fill))
-    if(length(v$var)==1){out[[g]]=wave(h,v,s)}
-    else{if(v$var[2]=='upper'){out[[g]]=wave(h,v,s)}
-      else{out[[g]]=wave2(h,v,s)}}}
+    if(interaction!='none'){out[[g]]=wave3(h,v,s,interaction)}
+    else{if(length(v$var)==1){out[[g]]=wave(h,v,s)}
+      else{if(v$var[2]=='upper'){out[[g]]=wave(h,v,s)}
+        else{out[[g]]=wave2(h,v,s)}}}}
   return(unlist(out, recursive = FALSE))})
 #################################################################################
 dotplot=function(data,var,s){                                                   #create single dotplot, takes argument of model output, focal variables, scale
@@ -710,18 +727,18 @@ dotplot=function(data,var,s){                                                   
 
 dotplot2=function(data,var,s){                                                  #create multi-dotplots (new version), takes argument of model output, focal variables, scale
   df=setNames(as.data.frame(matrix(ncol=5)),
-              c(var$var[1],'v2','y2.5','y97.5','y50'))
-  for(i in unique(data[,var$var[1]])){
-    for(j in unique(data[,var$var[2]])){
-      q=data$response[data[,var$var[1]]==i&data[,var$var[2]]==j]
+              c(var$var[2],'v2','y2.5','y97.5','y50'))
+  for(i in unique(data[,var$var[2]])){
+    for(j in unique(data[,var$var[1]])){
+      q=data$response[data[,var$var[2]]==i&data[,var$var[1]]==j]
       df=rbind(df,setNames(data.frame('v'=i,'v2'=j,
                                       'y2.5'=quantile(q,0.05),
                                       'y97.5'=quantile(q,0.95),
                                       'y50'=quantile(q,.5)),
-                           c(var$var[1],'v2','y2.5','y97.5','y50')))}}
+                           c(var$var[2],'v2','y2.5','y97.5','y50')))}}
   g=ggplot(data)+
     geom_hline(yintercept=0,size=2*s)+
-    facet_grid(reformulate(var$var[1]))+
+    facet_grid(reformulate(var$var[2]))+
     geom_boxplot(data=na.omit(df),
                  width=.05*s,lwd=s,position = position_dodge(.9),
                  aes(x=as.factor(v2),group=as.factor(v2),
@@ -797,19 +814,19 @@ cello=function(data,var,s,label='none',lsize=1){                                
 
 cello2=function(data,var,s){                                                    #create multi-violin plots with CI bars, takes argument of model output, focal variables, scale
   df=setNames(as.data.frame(matrix(ncol=5)),
-              c(var$var[1],'v2','y2.5','y97.5','y50'))
-  for(i in unique(data[,var$var[1]])){
-    for(j in unique(data[,var$var[2]])){
-      q=data$response[data[,var$var[1]]==i&data[,var$var[2]]==j]
+              c(var$var[2],'v2','y2.5','y97.5','y50'))
+  for(i in unique(data[,var$var[2]])){
+    for(j in unique(data[,var$var[1]])){
+      q=data$response[data[,var$var[2]]==i&data[,var$var[1]]==j]
       df=rbind(df,setNames(data.frame('v'=i,'v2'=j,'y2.5'=quantile(q,0.05),
                                       'y97.5'=quantile(q,0.95),
                                       'y50'=quantile(q,.5)),
-                           c(var$var[1],'v2','y2.5','y97.5','y50')))}}
+                           c(var$var[2],'v2','y2.5','y97.5','y50')))}}
   g=ggplot(data)+
     geom_hline(yintercept=0,size=2*s)+
-    facet_grid(reformulate(var$var[1]))+
-    geom_violin(aes_string(x=var$var[2],y='response',
-                           fill=var$var[2]),size=s,scale='width')+
+    facet_grid(reformulate(var$var[2]))+
+    geom_violin(aes_string(x=var$var[1],y='response',
+                           fill=var$var[1]),size=s,scale='width')+
     geom_boxplot(data=na.omit(df),width=.05*s,lwd=s,position=position_dodge(.9),
                  aes(x=as.factor(v2),group=as.factor(v2),
                      ymin = y2.5, lower = y2.5, middle = y50, 
@@ -827,19 +844,52 @@ setMethod("bass","hbm_object",function(hbm,groups,fill='lower',s=1,label='none',
     else{if(v$var[2]=='upper'){out[[g]]=cello(h,v,s,label=label,lsize=lsize)}
       else{out[[g]]=cello2(h,v,s)}}}
   return(out)})
+#################################################################################
+clamp=function(x,minimum,maximum){return(ifelse(x<minimum,minimum,ifelse(x>maximum,maximum,x)))}
+
+randseq=function(x,size){out=c();for(i in 1:size){out=c(out,sample(x,1))};return(out)}
+
+fixedmean=function(n,m,d){
+  out=c(rnorm(n-1,m,d))
+  return(c(out,(m-sum(out)/n)*n))}
+
+# x => list(distrubition, mean, sd or other parameter)
+# y => list(x,alpha,slope)
+# g => list(groups,sd)
+
+mixed=function(n,params){
+  data=setNames(as.data.frame(matrix(ncol=length(names(params)),nrow=n)),names(params))
+  rslope=list();ralpha=list()
+  resp=names(params)[sapply(names(params),\(x)length(params[[x]])>=3&is.character(params[[x]][[1]]))]
+  for(p in setdiff(names(params),resp)){
+    if(length(params[[p]])==2){
+      data[p]=randseq(params[[p]][[1]],n)
+      rslope[[p]]=setNames(fixedmean(length(params[[p]][[1]]),params[[resp[1]]][[3]],params[[p]][[2]]),params[[p]][[1]])
+      ralpha[[p]]=setNames(fixedmean(length(params[[p]][[1]]),params[[resp[1]]][[2]],params[[p]][[2]]),params[[p]][[1]])}}
+  for(p in setdiff(names(params),names(rslope))){
+    if(length(params[[p]])>=3){
+      if(is.function(params[[p]][[1]])){data[p]=params[[p]][[1]](n,params[[p]][[2]],params[[p]][[3]])}
+      else{
+        slope=rep(1/(mean(rslope[[1]])^(length(rslope)-1)),n)
+        alpha=rep(0,n)
+        for(i in names(rslope)){
+          slope=slope*rslope[[i]][data[,i]]
+          alpha=alpha+ralpha[[i]][data[,i]]/length(names(ralpha))}
+        data[p]=data[params[[p]][[1]]]*slope+alpha+rnorm(n,0,params[[p]][[2]])}}}
+  return(list(data,ralpha,rslope))}
+
 ####examples#####################################################################
 #generate data
-data=data.frame('mass'=rep(0:1,each=100),
-                'length'=2*rep(0:1,each=100)+rnorm(200,1,.1),
-                'sex'=rep(c(1,2,2,1),each=50),
-                'b'=rep(letters[1:4],50))
-data$length[data$sex=='1']=5*abs(data$length[data$sex=='1'])
-data$length[c(T,F)]=2+2*abs(data$length[c(T,F)])
-data$site=data$b
-ggplot(data,aes(x=mass,y=length,color=as.factor(sex)))+
+data=mixed(200,list('mass'=list(runif,10,20),
+                    'length'=list('mass',1,2),
+                    'site'=list(LETTERS[1:5],1),
+                    'species'=list(c('s1','s2','s3'),1),
+                    'sex'=list(c('M','F'),1)))[[1]]
+  
+ggplot(data,aes(x=mass,y=abs(length),color=as.factor(sex)))+
   geom_point()+
   geom_smooth(method=lm,alpha=0)+
-  facet_grid(cols=vars(b))+
+  facet_grid(cols=vars(site),rows=vars(species))+
   theme_classic()
 #single level
 o=hbm(rbind(data,data),length~mass+(site))
@@ -849,18 +899,18 @@ polka(o,'mass','site')[[1]]
 bass(o,'mass','site')[[1]]
 
 #multiple levels
-o=hbm(data,length~mass+(site+sex))
+o=hbm(data,length~mass+(site+species))
 summary(o) 
-ocean(o,'mass','sex')[[1]]
-polka(o,'mass','sex')[[1]]
-bass(o,'mass','sex')[[1]]
+ocean(o,'mass','species')[[1]]
+polka(o,'mass','species')[[1]]
+bass(o,'mass','species')[[1]]
 
 #interaction
 o=hbm(data,length~mass:sex+(site))
 summary(o) 
-ocean(o,'mass','site')[[1]]+coord_cartesian(xlim=c(-10,30))
+ocean(o,'mass','site',interaction='sex')[[1]]
 
-
+# 
 # data$sex=as.numeric(data$sex)
 # model='mass~length+sex
 # length~sex'
