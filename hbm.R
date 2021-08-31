@@ -682,24 +682,22 @@ wave2=function(data,var,s){                                                     
   return(list(out))}
 
 wave3=function(data,var,s,int){                                                     #create interaction + distribution plots, takes argument of model output, focal variables, scale
-  data=subset(data,!(data[,var$var[1]]=='all'))
+  data=subset(data,regexpr(int,lower)>0)
   data$interact=as.factor(regexpr(int,data$lower)>0)
-  print(unique(data[-4]))
   out=ggplot()+
     geom_vline(xintercept = 0,size=2*s,linetype='dashed')+
     geom_density(data=data[data[,var$var[1]]=='all',],
-                 aes_string(x='response',group=var$var[1]),size=1.5*s,
+                 aes_string(x='response',y='..scaled..',group=var$var[1]),size=1.5*s,
                  fill='black',color='black',alpha=.5)+
     geom_density(data=data[data[,var$var[1]]!='all',],
-                 aes_string(x='response',y='..scaled..',color='interact'),size=1.5*s)+
-    facet_grid(reformulate(var$var[1]))
+                 aes_string(x='response',y='..scaled..',color=var$var[1]),size=1.5*s)+
+    xlab('Difference in slopes')
   return(list(out))}
 
 setGeneric("ocean", function(hbm,...) standardGeneric("ocean"))
 setMethod("ocean","hbm_object",function(hbm,vars,fill='lower',s=1,interaction='none'){             #create groups of waveplots, takes arguments of model output, focal groups, fill groups, scale
   data=hbm@output
   out=list()
-  print(interaction=='none')
   for(g in vars){
     h=data[regexpr(g,data$lower)>0,]
     v=hbmvar(h,c(fill))
@@ -749,16 +747,35 @@ dotplot2=function(data,var,s){                                                  
                                     group=as.factor(v2),y=y50),size=5*s)
   return(g)}
 
+dotplot3=function(data,var,s,int){                                                   #create single dotplot, takes argument of model output, focal variables, scale
+  data=subset(data,regexpr(int,lower)>0)
+  data$interact=as.factor(regexpr(int,data$lower)>0)
+  df=setNames(as.data.frame(matrix(ncol=4)),c('variable','y2.5','y97.5','y50'))
+  for(i in unique(data[,var$var[1]])){
+    q=data$response[data[,var$var[1]]==i]
+    df=rbind(df,data.frame('variable'=i,'y2.5'=quantile(q,0.05),
+                           'y97.5'=quantile(q,0.95),'y50'=quantile(q,.5)))}
+  g=ggplot(data)+
+    geom_hline(yintercept=0,size=2*s)+
+    geom_boxplot(data=na.omit(df),width=.05*s,lwd=s,
+                 aes(x=as.factor(variable),ymin = y2.5, lower = y2.5, 
+                     middle = y50, upper = y97.5, ymax = y97.5),
+                 stat = "identity",fill='black')+
+    geom_point(data=na.omit(df),aes(x=as.factor(variable),y=y50),size=5*s)
+  
+  return(g)}
+
 setGeneric("polka", function(hbm,...) standardGeneric("polka"))
-setMethod("polka","hbm_object",function(hbm,vars,fill='lower',s=1){             #create groups of dotplots, takes arguments of model output, focal groups, fill group, scale
+setMethod("polka","hbm_object",function(hbm,vars,fill='lower',s=1,interaction='none'){             #create groups of dotplots, takes arguments of model output, focal groups, fill group, scale
   data=hbm@output
   out=list()
   for(g in vars){
     h=data[regexpr(g,data$lower)>0,]
     v=hbmvar(h,c(fill))
-    if(length(v$var)==1){out[[g]]=dotplot(h,v,s)}
-    else{if(v$var[2]=='upper'){out[[g]]=dotplot(h,v,s)}
-      else{out[[g]]=dotplot2(h,v,s)}}}
+    if(interaction!='none'){out[[g]]=dotplot3(h,v,s,interaction)}
+    else{if(length(v$var)==1){out[[g]]=dotplot(h,v,s)}
+      else{if(v$var[2]=='upper'){out[[g]]=dotplot(h,v,s)}
+        else{out[[g]]=dotplot2(h,v,s)}}}}
   return(out)})
 #################################################################################
 setGeneric("hbmgroup", function(hbm,...) standardGeneric("hbmgroup"))
@@ -833,16 +850,40 @@ cello2=function(data,var,s){                                                    
                      upper = y97.5, ymax = y97.5),stat = "identity")
   return(g)}
 
+cello3=function(data,var,s,label='none',lsize=1,int){                                #create single violin plot with CI bars, takes argument of model output, focal variables, scale
+  data=subset(data,regexpr(int,lower)>0)
+  data$interact=as.factor(regexpr(int,data$lower)>0)
+  df=setNames(as.data.frame(matrix(ncol=5)),c('variable','y2.5','y97.5','y50','lab'))
+  for(i in unique(data[,var$var[1]])){
+    q=data$response[data[,var$var[1]]==i]
+    df=rbind(df,data.frame('variable'=i,'y2.5'=quantile(q,0.05),
+                           'y97.5'=quantile(q,0.95),'y50'=quantile(q,.5),
+                           'lab'=paste0(sign(median(q))*round(100*pd(q),1),'%')))}
+  g=ggplot(data)+
+    geom_hline(yintercept=0,size=2*s)+
+    geom_violin(aes_string(x=var$var[1],y='response',
+                           fill=var$var[1]),size=s,scale='width')+
+    geom_boxplot(data=na.omit(df),width=.05*s,lwd=s,
+                 aes(x=as.factor(variable),
+                     ymin = y2.5, lower = y2.5, middle = y50, 
+                     upper = y97.5, ymax = y97.5),stat = "identity")
+  if(label!='none'){g=g+geom_text(data=na.omit(df),aes(label=lab,
+                                                       x=as.factor(variable),
+                                                       y=label),size=lsize)}
+  
+  return(g)}
+
 setGeneric("bass", function(hbm,...) standardGeneric("bass"))
-setMethod("bass","hbm_object",function(hbm,groups,fill='lower',s=1,label='none',lsize=1){               #create groups cello plots, takes arguments of model output, focal groups, fill group, scale
+setMethod("bass","hbm_object",function(hbm,groups,fill='lower',s=1,label='none',lsize=1,interaction='none'){               #create groups cello plots, takes arguments of model output, focal groups, fill group, scale
   data=hbm@output
   out=list()
   for(g in groups){
     h=data[regexpr(g,data$lower)>0,]
     v=hbmvar(h,c(fill))
-    if(length(v$var)==1){out[[g]]=cello(h,v,s,label=label,lsize=lsize)}
-    else{if(v$var[2]=='upper'){out[[g]]=cello(h,v,s,label=label,lsize=lsize)}
-      else{out[[g]]=cello2(h,v,s)}}}
+    if(interaction!='none'){out[[g]]=cello3(h,v,s,label=label,lsize=lsize,int=interaction)}
+    else{if(length(v$var)==1){out[[g]]=cello(h,v,s,label=label,lsize=lsize)}
+      else{if(v$var[2]=='upper'){out[[g]]=cello(h,v,s,label=label,lsize=lsize)}
+        else{out[[g]]=cello2(h,v,s)}}}}
   return(out)})
 #################################################################################
 clamp=function(x,minimum,maximum){return(ifelse(x<minimum,minimum,ifelse(x>maximum,maximum,x)))}
@@ -909,6 +950,8 @@ bass(o,'mass','species')[[1]]
 o=hbm(data,length~mass:sex+(site))
 summary(o) 
 ocean(o,'mass','site',interaction='sex')[[1]]
+polka(o,'mass','site',interaction='sex')[[1]]
+bass(o,'mass','site',interaction='sex')[[1]]
 
 # 
 # data$sex=as.numeric(data$sex)
