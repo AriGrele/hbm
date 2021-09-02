@@ -10,7 +10,8 @@ model_data=setClass('model_data',slots=list(
   'model'     ='character',
   'model_data'='list',
   'scales'    ='vector',
-  'save'      ='vector'))
+  'save'      ='vector',
+  'filter'    ='data.frame'))
 run_model=setClass('run_model',slots=list(
   'n.adapt'   ='numeric',
   'n.burnin'  ='numeric',
@@ -344,7 +345,7 @@ setMethod("format_model","hbm_object",function(hbm){
     o[i]=hbm@model_data[[vars[i]]]
     o[i+2]=names(hbm@model_data[[vars[i]]])}
   filter=unique(o)
-  
+  hbm@filter=filter
   sims=hbm@jags_model$sims.list
   for(n in names(sims)){if(regexpr('\\.s?fit$',n)>0){sims[[n]]=NULL}}
   name=names(sims)
@@ -457,7 +458,14 @@ setMethod("format_model","hbm_object",function(hbm){
     out$response[regexpr(sb,out$lower)>0]=out$response[regexpr(sb,out$lower)>0]*as.numeric(hbm@scales[1])/as.numeric(hbm@scales[sb])
     progress(match(sb,names(hbm@scales[-1]))/length(names(hbm@scales[-1])),50)}
   hbm@output=out
-  for(i in 1:nrow(filter)){hbm@output[,1][out[,1]==filter[,1][i]]=filter[,3][i]}
+  count=0
+  cat('\nfixing hierarchy names\n')
+  for(i in unique(names(filter))){
+    group=unique(filter[,regexpr(i,unique(names(filter)))>0])
+    group_filter=setNames(c('all',group[,2]),c('all',group[,1]))
+    hbm@output[,i]=sapply(hbm@output[,i],\(x)group_filter[x])
+    count=count+1
+    progress(count/length(unique(names(filter))),50)}
   return(hbm)})
 #################################################################################
 setGeneric("run_model", function(hbm) standardGeneric("run_model"))
@@ -952,6 +960,13 @@ summary(o)
 ocean(o,'mass','site',interaction='sex')[[1]]
 polka(o,'mass','site',interaction='sex')[[1]]
 bass(o,'mass','site',interaction='sex')[[1]]
+
+
+o=hbm(data,length~mass+(site+species))
+summary(o)
+
+
+
 
 # 
 # data$sex=as.numeric(data$sex)
