@@ -1,10 +1,10 @@
 model{
 for(i in 1:N){
-	length[i]~dbern(ilogit(mu[i]*1.000000001))
-	length.sim[i]~dbern(ilogit(mu[i]*1.000000001))
+	length[i]~dbern(mu[i])
+	length.sim[i]~dbern(mu[i])
 	length.res[i]=length[i]-mu[i]
 	length.sres[i]=length.sim[i]-mu[i]
-	mu[i]=alpha+alpha_site[site[i]]+
+	logit(mu[i])=alpha+alpha_site[site[i]]+
 	(beta_mass+beta_mass_site[site[i]])*mass[i]}
 for(a in 1:Nsite){
 	alpha_site[a]~dnorm(0,atau_site)

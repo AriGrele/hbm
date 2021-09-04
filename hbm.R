@@ -37,16 +37,15 @@ pd=function(x){                                                                 
   side=sign(median(x))                                                          #sign of median
   return(sum(side*x>0)/length(x))}                                              #return probability of direction
 #################################################################################
-setGeneric("summary", function(hbm) standardGeneric("summary"))
-setMethod("summary","hbm_object",function(hbm){                                 #creates summary aggregation of model output
-  l=1+length(hbm@vars[[2]])
+setMethod("summary","hbm_object",function(object){                                 #creates summary aggregation of model output
+  l=1+length(object@vars[[2]])
   p=list()
-  for(i in 1:l){p[[i]]=hbm@output[,i]}
-  a=with(hbm@output,aggregate(response,p,pd))
-  a$mean=with(hbm@output,aggregate(response,p,mean))$x
-  a$CIl=with(hbm@output,aggregate(response,p,function(x) quantile(x,0.025)))$x
-  a$CIu=with(hbm@output,aggregate(response,p,function(x) quantile(x,0.975)))$x
-  a=setNames(a,c(names(hbm@output)[-c(length(hbm@output))],
+  for(i in 1:l){p[[i]]=object@output[,i]}
+  a=with(object@output,aggregate(response,p,pd))
+  a$mean=with(object@output,aggregate(response,p,mean))$x
+  a$CIl=with(object@output,aggregate(response,p,function(x) quantile(x,0.025)))$x
+  a$CIu=with(object@output,aggregate(response,p,function(x) quantile(x,0.975)))$x
+  a=setNames(a,c(names(object@output)[-c(length(object@output))],
                  'PD','mean','CI_lower','CI_upper'))
   return(a)})
 #################################################################################
@@ -125,9 +124,11 @@ chunk=function(ar,len){                                                         
   return(o)}
 #################################################################################
 response=function(hbm){
-  if(!(hbm@dist%in%c('dnorm'))){return()}
+  if(!(hbm@dist%in%c('dnorm','dgamma','dbern'))){return('Invalid dist')}
   return(switch(hbm@dist,
-         'dnorm'=str_interp('${hbm@dist}(mu[i],tau)')))}
+         'dnorm'=str_interp('${hbm@dist}(mu[i],tau)'),
+         'dgamma'=str_interp('${hbm@dist}(sigma,sigma/exp(mu[i]))'),
+         'dbern'=str_interp('${hbm@dist}(ilogit(mu[i]*1.000000001))')))}
 #################################################################################
 ilen=function(data,v,x=1){                                                      #returns counts of factors in each level of hierarchy, take argument of data.frame, vector of col names
   o=c()                                                                         #define var
@@ -248,13 +249,13 @@ semb=function(data,model,...){                                                  
                              error=function(e){print(e);return(NULL)})
   
   cat('\nMaking trace plots\n')
-  traces(output)
+  tryCatch(traces(output),error=function(e){print(e)})
   return(output)}
 #################################################################################
-setGeneric("fits", function(hbm,...) standardGeneric("fits"))
-setMethod("fits","semb_object",function(hbm,...){                               #summaries fit measures for Bayesian models, takes arguments of one or more model outputs
+setGeneric("fits", function(obj,...) standardGeneric("fits"))
+setMethod("fits",'run_model',function(obj,...){                               #summaries fit measures for Bayesian models, takes arguments of one or more model outputs
   mc=match.call(expand.dots=T)
-  mods=c(list(hbm),list(...))
+  mods=c(list(obj@jags_model),list(...))
   out=data.frame('response'=NA,'ppp'=NA,'DIC'=NA,
                  'names'=NA,'intercept'=NA,'slope'=NA,'r'=NA)
   if(length(mods)>1){
@@ -266,20 +267,20 @@ setMethod("fits","semb_object",function(hbm,...){                               
       out=rbind(out,new)}
     out=na.omit(out)}
   else{
-    sims=hbm@jags_model$sims.list
+    sims=obj@jags_model$sims.list
     groups=c()
     for(n in names(sims)){
       if(regexpr('\\.s?fit$',n)<=0){sims[[n]]=NULL}
       else{groups[n]=gsub('\\.s?fit$','',n)}}
-    DIC=ifelse(hbm@jags_model$calc.DIC,hbm@jags_model$DIC,'NA')
+    DIC=ifelse(obj@jags_model$calc.DIC,obj@jags_model$DIC,'NA')
     n=names(groups)
     par(mfrow=c(1,ceiling(length(n)/2)))
     g=1;for(i in 1:(length(n)/2)){
-      sims=hbm@jags_model$sims.list
+      sims=obj@jags_model$sims.list
       x=sims[[n[g+1]]];y=sims[[n[g]]]
       l=lm(y~x)
       out=rbind(out,data.frame('response'=groups[n[g]],
-                               'ppp'=pp.check(hbm@jags_model,n[g+1],n[g]),
+                               'ppp'=pp.check(obj@jags_model,n[g+1],n[g]),
                                'DIC'=DIC,'names'='model','intercept'=coef(l)[1],
                                'slope'=coef(l)[2],r=summary(l)$r.squared))
       g=g+2}
@@ -340,10 +341,11 @@ setGeneric("format_model", function(hbm) standardGeneric("format_model"))
 setMethod("format_model","hbm_object",function(hbm){
   vars=hbm@vars[[2]][-1]
   o=as.data.frame(matrix(nrow=hbm@model_data$N,ncol=2*length(vars)))|>
-    setNames(rep(vars,2))
-  for(i in 1:length(vars)){
-    o[i]=hbm@model_data[[vars[i]]]
-    o[i+2]=names(hbm@model_data[[vars[i]]])}
+    setNames(rep(vars,each=2))
+  for(i in 1:(length(vars))){
+    ind=(i-1)*2+1
+    o[ind]=hbm@model_data[[vars[i]]]
+    o[ind+1]=names(hbm@model_data[[vars[i]]])}
   filter=unique(o)
   hbm@filter=filter
   sims=hbm@jags_model$sims.list
@@ -470,6 +472,9 @@ setMethod("format_model","hbm_object",function(hbm){
 #################################################################################
 setGeneric("run_model", function(hbm) standardGeneric("run_model"))
 setMethod("run_model","hbm_object",function(hbm){
+  cat('from',paste(hbm@model_dir,'/',
+                   hbm@model_name,
+                   '.txt',sep=''))
   hbm@jags_model=jagsUI::jags(data=hbm@model_data,
                               n.adapt=hbm@n.adapt,
                               n.burnin=hbm@n.burnin,
@@ -604,8 +609,8 @@ setMethod("write_model","hbm_object",function(hbm){
     
   middle=paste(middle,collapse='\n')|>
     (\(x)paste(c(x,rep('}',length(hbm@vars[[2]])-1)),collapse=''))()
-  tail=paste(c(str_interp('${as.character(hbm@input$model)[2]}.fit=sum(pow(${as.character(hbm@input$model)[2]}.res[],2)/tau)'),
-               str_interp('${as.character(hbm@input$model)[2]}.sfit=sum(pow(${as.character(hbm@input$model)[2]}.sres[],2)/tau)')),collapse='\n')
+  tail=paste(c(str_interp('${as.character(hbm@input$model)[2]}.fit=sum(pow(${as.character(hbm@input$model)[2]}.res[],2))'),
+               str_interp('${as.character(hbm@input$model)[2]}.sfit=sum(pow(${as.character(hbm@input$model)[2]}.sres[],2))')),collapse='\n')
   hbm@model=str_interp("model{\n${paste(top,middle,bottom,tail,sep='\n')}\n}")|>
     (\(x)gsub('\\]\\[',',',x))()|>
     (\(x)gsub('\\[i\\]',paste(c('\\[',new_i,'\\]'),collapse=''),x))()|>
@@ -645,21 +650,24 @@ hbm=function(data,model,...){
       cat('Invalid input for variable "',d,'"\n',sep='')
       return()}}
   
-  if(!(output@dist%in%c('dnorm'))){
+  if(!(output@dist%in%c('dnorm','dgamma','dbern'))){
     cat('Distribution "',output@dist,'" not yet implemented',sep='')
     return()}
+  if(output@source_model!=''){output@model_name=output@source_model}
   
-  if(output@source_model==''){
-    output=tryCatch(write_model(output),error=\(x){print(x);return(output)})}
+  output=tryCatch(write_model(output),error=\(x){print(x);return(output)})
   output=tryCatch(format_data(output),error=\(x){print(x);return(output)})
   output=tryCatch(run_model(output),error=\(x){print(x);return(output)})
+  
   cat('\nFormatting data\n')
   output=tryCatch(format_model(output),error=\(x){print(x);return(output)})
-  cat('\nmaking trace plots\n')
-  traces(output,cull=9)
   
-  write.csv(summary(output),
-            paste0(output@dir,'/',output@name,'.csv'),row.names=F)
+  cat('\nmaking trace plots\n')
+  tryCatch(traces(output,cull=9),error=function(e){print(e)})
+  
+  tryCatch(write.csv(summary(output),
+            paste0(output@dir,'/',output@name,'.csv'),row.names=F),
+           error=function(e){print(e)})
   for(n in names(output@jags_model$Rhat)){
     if(max(output@jags_model$Rhat[[n]],na.rm=T)>1.1){
       cat(rep('#',50),'\nRhat Greater than 1.1 in\n',
@@ -934,42 +942,84 @@ data=mixed(200,list('mass'=list(runif,10,20),
                     'site'=list(LETTERS[1:5],1),
                     'species'=list(c('s1','s2','s3'),1),
                     'sex'=list(c('M','F'),1)))[[1]]
-  
+data=data.frame('mass'=runif(100,10,20))
+data$site=rep(1:4,each=25)
+data$length=data$site/2*data$mass+rnorm(100,0,1)
+data$site=rep(letters[1:4],each=25)
+ggplot(data,aes(x=mass,y=length,color=site))+geom_point()+geom_smooth(method=lm)
+plot(density(data$length))
 ggplot(data,aes(x=mass,y=abs(length),color=as.factor(sex)))+
   geom_point()+
   geom_smooth(method=lm,alpha=0)+
   facet_grid(cols=vars(site),rows=vars(species))+
   theme_classic()
-#single level
-o=hbm(rbind(data,data),length~mass+(site))
-summary(o) 
-ocean(o,'mass','site')[[1]]
-polka(o,'mass','site')[[1]]
-bass(o,'mass','site')[[1]]
-
-#multiple levels
-o=hbm(data,length~mass+(site+species))
-summary(o) 
-ocean(o,'mass','species')[[1]]
-polka(o,'mass','species')[[1]]
-bass(o,'mass','species')[[1]]
-
-#interaction
-o=hbm(data,length~mass:sex+(site))
-summary(o) 
-ocean(o,'mass','site',interaction='sex')[[1]]
-polka(o,'mass','site',interaction='sex')[[1]]
-bass(o,'mass','site',interaction='sex')[[1]]
-
-
-o=hbm(data,length~mass+(site+species))
-summary(o)
-
-
-
-
+# #single level
+# o=hbm(rbind(data,data),length~mass+(site))
+# summary(o) 
+# ocean(o,'mass','site')[[1]]
+# polka(o,'mass','site')[[1]]
+# bass(o,'mass','site')[[1]]
+# 
+# #multiple levels
+# o=hbm(data,length~mass+(site+species))
+# summary(o) 
+# ocean(o,'mass','species')[[1]]
+# polka(o,'mass','species')[[1]]
+# bass(o,'mass','species')[[1]]
+# 
+# #interaction
+# o=hbm(data,length~mass:sex+(site))
+# summary(o) 
+# ocean(o,'mass','site',interaction='sex')[[1]]
+# polka(o,'mass','site',interaction='sex')[[1]]
+# bass(o,'mass','site',interaction='sex')[[1]]
+# 
+# set.seed(1)
+# o1=hbm(data,length~mass+(site),dist='dgamma')
+# fits(o1)
+# set.seed(1)
+# o2=hbm(data,length~mass+(site),dist='dgamma')
+# fits(o2)
+# set.seed(1)
+# o3=hbm(data,length~mass+(site),source_model='moose')
+# fits(o3)
+# summary(o1)
+# summary(o2)
 # 
 # data$sex=as.numeric(data$sex)
 # model='mass~length+sex
 # length~sex'
 # b=semb(data,model)
+herb3$herb=herb3$wilmer_herb_total+1
+set.seed(1)
+o=hbm(herb3,wilmer_herb_total~floodn+(site))
+fits(o)
+summary(o)
+
+herb3$pred=18.3-4.17*herb3$floodn
+
+ggplot(herb3)+
+  geom_density(aes(x=wilmer_herb_total,group=floodn))+
+  geom_density(aes(x=pred,group=floodn),color='red')
+  
+
+summary(o)
+set.seed(1)
+o2=hbm(herb3,herb~pdiv+clonen+floodn+(site),source_model='moose')
+bass(o2,'floodn','site')
+fits(o2)
+summary(o2)
+
+herb5$herb=herb5$wilmer_herb_total+1
+o3=hbm(herb5,herb~pdiv+clonen+(site),dist='dgamma')
+bass(o3,'pdiv','site')
+fits(o3)
+summary(o3)
+
+o4=hbm(herb3,herb~pdiv:floodn+clonen:floodn+(site),dist='dgamma')
+bass(o4,'pdiv','site')
+fits(o4)
+summary(o4)
+
+t=with(herb3,tapply(herb,list(site,floodn),mean))
+t[,2]-t[,1]
