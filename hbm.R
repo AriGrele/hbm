@@ -128,7 +128,7 @@ response=function(hbm){
   return(switch(hbm@dist,
          'dnorm'=str_interp('${hbm@dist}(mu[i],tau)'),
          'dgamma'=str_interp('${hbm@dist}(sigma,sigma/exp(mu[i]))'),
-         'dbern'=str_interp('${hbm@dist}(ilogit(mu[i]*1.000000001))')))}
+         'dbern'=str_interp('${hbm@dist}(ilogit(mu[i]))')))}
 #################################################################################
 ilen=function(data,v,x=1){                                                      #returns counts of factors in each level of hierarchy, take argument of data.frame, vector of col names
   o=c()                                                                         #define var
@@ -329,10 +329,13 @@ setMethod("format_data","hbm_object",function(hbm){
   
   for(m in hbm@variables){
     if(length(hbm@model_data[[m]])>1&!(m%in%hbm@vars[[2]])){
-      if(m!='error'){
+      if(hbm@dist%in%c('dbern')&m==hbm@variables[1]){m='scale_error'}
+      if(regexpr('error',m)<0){
         hbm@scales[[m]]=attributes(scale(hbm@model_data[[m]],center=F))$scale
-        hbm@model_data[[m]]=as.numeric(scale(hbm@model_data[[m]],center=F))}
+        hbm@model_data[[m]]=as.numeric(scale(hbm@model_data[[m]],center=F))
+        }
       else{
+        m=gsub('scale_error',hbm@variables[1],m)
         hbm@scales[[m]]=1
         hbm@model_data[[m]]=as.numeric(hbm@model_data[[m]])}}}
   return(hbm)})
@@ -937,23 +940,35 @@ mixed=function(n,params){
 
 ####examples#####################################################################
 #generate data
-data=mixed(200,list('mass'=list(runif,10,20),
+mix=mixed(200,list('mass'=list(runif,10,20),
                     'length'=list('mass',1,2),
                     'site'=list(LETTERS[1:5],1),
                     'species'=list(c('s1','s2','s3'),1),
                     'sex'=list(c('M','F'),1)))[[1]]
-data=data.frame('mass'=runif(100,10,20))
-data$site=rep(1:4,each=25)
-data$length=data$site/2*data$mass+rnorm(100,0,1)
-data$site=rep(letters[1:4],each=25)
-ggplot(data,aes(x=mass,y=length,color=site))+geom_point()+geom_smooth(method=lm)
-plot(density(data$length))
-ggplot(data,aes(x=mass,y=abs(length),color=as.factor(sex)))+
-  geom_point()+
-  geom_smooth(method=lm,alpha=0)+
-  facet_grid(cols=vars(site),rows=vars(species))+
-  theme_classic()
-# #single level
+
+data=data.frame(mass=mix$mass)
+data$slope=1:4
+data$site=letters[1:4]
+data$length=rnorm(200,data$mass*data$slope,1)
+data$offspring=rgamma(200,shape=1,rate=1/data$mass*data$slope)
+data$survival=(data$mass>15)+0
+cowplot::plot_grid(
+  ggplot(data,aes(x=mass,y=length,color=site))+
+    geom_point()+
+    geom_smooth(method=lm),
+  ggplot(data,aes(x=mass,y=offspring,color=site))+
+    geom_point()+
+    geom_smooth(method=lm),
+  ggplot(data,aes(x=mass,y=survival,color=site))+
+    geom_point()+
+    geom_smooth(method=lm),
+  ggplot(data,aes(x=length,color=site))+geom_density(),
+  ggplot(data,aes(x=offspring,color=site))+geom_density(),
+  ggplot(data,aes(x=survival,color=site))+geom_density(bw=.01),ncol=3)
+
+
+
+
 # o=hbm(rbind(data,data),length~mass+(site))
 # summary(o) 
 # ocean(o,'mass','site')[[1]]
@@ -977,49 +992,19 @@ ggplot(data,aes(x=mass,y=abs(length),color=as.factor(sex)))+
 # set.seed(1)
 # o1=hbm(data,length~mass+(site),dist='dgamma')
 # fits(o1)
-# set.seed(1)
-# o2=hbm(data,length~mass+(site),dist='dgamma')
-# fits(o2)
-# set.seed(1)
-# o3=hbm(data,length~mass+(site),source_model='moose')
-# fits(o3)
-# summary(o1)
-# summary(o2)
+set.seed(1)
+o1=hbm(data,length~mass+(site),dist='dgamma')
+fits(o1)
+set.seed(1)
+o2=hbm(data,offspring~mass+(site),dist='dgamma')
+fits(o2)
+set.seed(1)
+
+o3=hbm(data,survival~mass+(site),dist='dnorm')
+fits(o3)
+summary(o3)
 # 
 # data$sex=as.numeric(data$sex)
 # model='mass~length+sex
 # length~sex'
 # b=semb(data,model)
-herb3$herb=herb3$wilmer_herb_total+1
-set.seed(1)
-o=hbm(herb3,wilmer_herb_total~floodn+(site))
-fits(o)
-summary(o)
-
-herb3$pred=18.3-4.17*herb3$floodn
-
-ggplot(herb3)+
-  geom_density(aes(x=wilmer_herb_total,group=floodn))+
-  geom_density(aes(x=pred,group=floodn),color='red')
-  
-
-summary(o)
-set.seed(1)
-o2=hbm(herb3,herb~pdiv+clonen+floodn+(site),source_model='moose')
-bass(o2,'floodn','site')
-fits(o2)
-summary(o2)
-
-herb5$herb=herb5$wilmer_herb_total+1
-o3=hbm(herb5,herb~pdiv+clonen+(site),dist='dgamma')
-bass(o3,'pdiv','site')
-fits(o3)
-summary(o3)
-
-o4=hbm(herb3,herb~pdiv:floodn+clonen:floodn+(site),dist='dgamma')
-bass(o4,'pdiv','site')
-fits(o4)
-summary(o4)
-
-t=with(herb3,tapply(herb,list(site,floodn),mean))
-t[,2]-t[,1]
