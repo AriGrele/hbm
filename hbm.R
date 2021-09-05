@@ -732,6 +732,7 @@ dotplot=function(data,var,s){                                                   
     q=data$response[data[,var$var[1]]==i]
     df=rbind(df,data.frame('variable'=i,'y2.5'=quantile(q,0.05),
                            'y97.5'=quantile(q,0.95),'y50'=quantile(q,.5)))}
+  df$variable=factor(df$variable,levels=df$variable[order(df$y50)])
   g=ggplot(data)+
     geom_hline(yintercept=0,size=2*s)+
     geom_boxplot(data=na.omit(df),width=.05*s,lwd=s,
@@ -753,6 +754,7 @@ dotplot2=function(data,var,s){                                                  
                                       'y97.5'=quantile(q,0.95),
                                       'y50'=quantile(q,.5)),
                            c(var$var[2],'v2','y2.5','y97.5','y50')))}}
+  df$v2=factor(df$variable,levels=df$v2[order(df$y50)])
   g=ggplot(data)+
     geom_hline(yintercept=0,size=2*s)+
     facet_grid(reformulate(var$var[2]))+
@@ -774,6 +776,7 @@ dotplot3=function(data,var,s,int){                                              
     q=data$response[data[,var$var[1]]==i]
     df=rbind(df,data.frame('variable'=i,'y2.5'=quantile(q,0.05),
                            'y97.5'=quantile(q,0.95),'y50'=quantile(q,.5)))}
+  df$variable=factor(df$variable,levels=df$variable[order(df$y50)])
   g=ggplot(data)+
     geom_hline(yintercept=0,size=2*s)+
     geom_boxplot(data=na.omit(df),width=.05*s,lwd=s,
@@ -834,6 +837,7 @@ cello=function(data,var,s,label='none',lsize=1){                                
     df=rbind(df,data.frame('variable'=i,'y2.5'=quantile(q,0.05),
                            'y97.5'=quantile(q,0.95),'y50'=quantile(q,.5),
                            'lab'=paste0(sign(median(q))*round(100*pd(q),1),'%')))}
+  
   g=ggplot(data)+
     geom_hline(yintercept=0,size=2*s)+
     geom_violin(aes_string(x=var$var[1],y='response',
@@ -858,6 +862,7 @@ cello2=function(data,var,s){                                                    
                                       'y97.5'=quantile(q,0.95),
                                       'y50'=quantile(q,.5)),
                            c(var$var[2],'v2','y2.5','y97.5','y50')))}}
+  
   g=ggplot(data)+
     geom_hline(yintercept=0,size=2*s)+
     facet_grid(reformulate(var$var[2]))+
@@ -878,6 +883,7 @@ cello3=function(data,var,s,label='none',lsize=1,int){                           
     df=rbind(df,data.frame('variable'=i,'y2.5'=quantile(q,0.05),
                            'y97.5'=quantile(q,0.95),'y50'=quantile(q,.5),
                            'lab'=paste0(sign(median(q))*round(100*pd(q),1),'%')))}
+  
   g=ggplot(data)+
     geom_hline(yintercept=0,size=2*s)+
     geom_violin(aes_string(x=var$var[1],y='response',
@@ -993,7 +999,9 @@ cowplot::plot_grid(
 # o1=hbm(data,length~mass+(site),dist='dgamma')
 # fits(o1)
 set.seed(1)
-o1=hbm(data,length~mass+(site),dist='dgamma')
+o1=hbm(data,length~mass+(site),dist='dnorm')
+polka(o1,'mass','site')
+
 fits(o1)
 set.seed(1)
 o2=hbm(data,offspring~mass+(site),dist='dgamma')
