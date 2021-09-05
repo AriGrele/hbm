@@ -286,6 +286,7 @@ setMethod("fits",'run_model',function(obj,...){                               #s
                                'ppp'=pp.check(obj@jags_model,n[g+1],n[g]),
                                'DIC'=DIC,'names'='model','intercept'=coef(l)[1],
                                'slope'=coef(l)[2],r=summary(l)$r.squared))
+      abline(l,col='red')
       g=g+2}
     par(mfrow=c(1,1))}
   return(na.omit(out))})
@@ -348,10 +349,11 @@ setMethod("format_model","hbm_object",function(hbm){
   vars=hbm@vars[[2]][-1]
   o=as.data.frame(matrix(nrow=hbm@model_data$N,ncol=2*length(vars)))|>
     setNames(rep(vars,each=2))
-  for(i in 1:(length(vars))){
-    ind=(i-1)*2+1
-    o[ind]=hbm@model_data[[vars[i]]]
-    o[ind+1]=names(hbm@model_data[[vars[i]]])}
+  if(length(vars)>0){
+    for(i in 1:(length(vars))){
+      ind=(i-1)*2+1
+      o[ind]=hbm@model_data[[vars[i]]]
+      o[ind+1]=names(hbm@model_data[[vars[i]]])}}
   filter=unique(o)
   hbm@filter=filter
   sims=hbm@jags_model$sims.list
@@ -362,8 +364,9 @@ setMethod("format_model","hbm_object",function(hbm){
   l=list()
   for(n in vars){l[[n]]=(hbm@model_data[paste('N',n,sep='')])[[1]]}
   
-  left=setNames(as.data.frame(matrix(nrow=sum(l[[length(l)]]),ncol=length(l))),
-                vars)
+  if(length(vars)>0){
+    left=setNames(as.data.frame(matrix(nrow=sum(l[[length(l)]]),ncol=length(l))),vars)}
+  else{left=data.frame()}
   if(length(l)>1){
     for(i in length(l):2){
       if(sum(!is.na(left[[i]]))==0){
@@ -391,74 +394,80 @@ setMethod("format_model","hbm_object",function(hbm){
                c(names(left),c('upper','lower','response')))
   counts=list();medians=list()
   betas=B[regexpr(paste(paste('_',names(left),'$',sep=''),collapse='|'),B)<0]
-  cat('\nformating slopes\n')
-  for(b in betas){
-    Bs=B[regexpr(b,B)>0]
-    for(i in 1:nrow(left)){
-      col=names(left)[regexpr('all',left[i,])<0]
-      if(length(col)>0){
-        lup=tryCatch(left[i,col[length(col)-1]],error=function(e) return('all'))
-        if(length(lup)==0){lup='all'}
-        llo=tryCatch(left[i,col[length(col)]],error=function(e) return('all'))
-        upp=tryCatch(Bs[regexpr(col[length(col)-1],Bs)>0],
-                     error=function(e) return('beta_all'))
-        col=paste('_',col,'$',sep='')
-        lab=Bs[regexpr(col[length(col)],Bs)>0]
-        
-        for(slab in lab){
-          if(!(slab %in% names(counts))){counts[[slab]]=0}
-          counts[[slab]]=counts[[slab]]+1
-          right=data.frame('upper'=upp,
-                           'lower'=lab,
-                           'response'=medians[[lup]]+
-                             as.numeric(as.data.frame(sims[slab])[counts[[slab]]][,1]))
-          if(length(col)<length(left)){
-            medians[[llo]]=right$response}
-          if(length(left)>1){out=rbind(out,
-                                       cbind(repframe(left[i,],nrow(right)),right))}
-          else{out=rbind(out,cbind(
-            setNames(as.data.frame(rep(left[i,],nrow(right))),
-                     names(left)),right))}}}
-      else{
-        right=data.frame('upper'='beta_all','lower'=Bs[1],'response'=sims[[Bs[[1]]]])
-        if(length(left)>1){out=rbind(out,cbind(repframe(left[i,],nrow(right)),right))}
-        else{out=rbind(out,cbind(setNames(as.data.frame(rep(left[i,],nrow(right))),names(left)),right))}
-        medians[['all']]=right$response[right$upper=='beta_all']}}
-    progress(match(b,betas)/length(betas),50)}
-  counts=list();medians=list()
-  alphas=A[regexpr(paste(paste('_',names(left),'$',sep=''),collapse='|'),A)<0]
-  cat('\nformating intercepts\n')
-  for(a in alphas){
-    Bs=A[regexpr(a,A)>0]
-    for(i in 1:nrow(left)){
-      col=names(left)[regexpr('all',left[i,])<0]
-      if(length(col)>0){
-        lup=tryCatch(left[i,col[length(col)-1]],error=function(e) return('all'))
-        if(length(lup)==0){lup='all'}
-        llo=tryCatch(left[i,col[length(col)]],error=function(e) return('all'))
-        upp=tryCatch(Bs[regexpr(col[length(col)-1],Bs)>0],error=function(e) return('alpha_all'))
-        col=paste('_',col,'$',sep='')
-        lab=Bs[regexpr(col[length(col)],Bs)>0]
-        for(slab in lab){
+  ngroup=ifelse(nrow(left)>0,nrow(left),1)
+  if(TRUE){
+    cat('\nformating slopes\n')
+    for(b in betas){
+      Bs=B[regexpr(b,B)>0]
+      for(i in 1:ngroup){
+        col=names(left)[regexpr('all',left[i,])<0]
+        if(length(col)>0){
+          lup=tryCatch(left[i,col[length(col)-1]],error=function(e) return('all'))
+          if(length(lup)==0){lup='all'}
+          llo=tryCatch(left[i,col[length(col)]],error=function(e) return('all'))
+          upp=tryCatch(Bs[regexpr(col[length(col)-1],Bs)>0],
+                       error=function(e) return('beta_all'))
+          col=paste('_',col,'$',sep='')
+          lab=Bs[regexpr(col[length(col)],Bs)>0]
           
-          if(!(slab %in% names(counts))){counts[[slab]]=0}
-          counts[[slab]]=counts[[slab]]+1
-          
-          right=data.frame('upper'=upp,
-                           'lower'=lab,
-                           'response'=medians[[lup]]+
-                             as.numeric(as.data.frame(sims[slab])[counts[[slab]]][,1]))
-          if(length(col)<length(left)){
-            medians[[llo]]=right$response}
+          for(slab in lab){
+            if(!(slab %in% names(counts))){counts[[slab]]=0}
+            counts[[slab]]=counts[[slab]]+1
+            right=data.frame('upper'=upp,
+                             'lower'=lab,
+                             'response'=medians[[lup]]+
+                               as.numeric(as.data.frame(sims[slab])[counts[[slab]]][,1]))
+            if(length(col)<length(left)){
+              medians[[llo]]=right$response}
+            if(length(left)>1){out=rbind(out,
+                                         cbind(repframe(left[i,],nrow(right)),right))}
+            else{out=rbind(out,cbind(
+              setNames(as.data.frame(rep(left[i,],nrow(right))),
+                       names(left)),right))}}}
+        else{
+          right=data.frame('upper'='beta_all','lower'=Bs[1],'response'=sims[[Bs[[1]]]])
           if(length(left)>1){out=rbind(out,cbind(repframe(left[i,],nrow(right)),right))}
-          else{out=rbind(out,cbind(setNames(as.data.frame(rep(left[i,],nrow(right))),names(left)),right))}}
-      }
-      else{
-        right=data.frame('upper'='alpha_all','lower'=Bs[1],'response'=sims[[Bs[[1]]]])
-        if(length(left)>1){out=rbind(out,cbind(repframe(left[i,],nrow(right)),right))}
-        else{out=rbind(out,cbind(setNames(as.data.frame(rep(left[i,],nrow(right))),names(left)),right))}
-        medians[['all']]=right$response[right$upper=='alpha_all']}}
-    progress(match(a,alphas)/length(alphas),50)}
+          else{
+            if(length(l==1)){out=rbind(out,cbind(setNames(as.data.frame(rep(left[i,],nrow(right))),names(left)),right))}
+            else{out=rbind(out,right)}}
+          medians[['all']]=right$response[right$upper=='beta_all']}}
+      progress(match(b,betas)/length(betas),50)}
+    counts=list();medians=list()
+    alphas=A[regexpr(paste(paste('_',names(left),'$',sep=''),collapse='|'),A)<0]
+    cat('\nformating intercepts\n')
+    for(a in alphas){
+      Bs=A[regexpr(a,A)>0]
+      for(i in 1:ngroup){
+        col=names(left)[regexpr('all',left[i,])<0]
+        if(length(col)>0){
+          lup=tryCatch(left[i,col[length(col)-1]],error=function(e) return('all'))
+          if(length(lup)==0){lup='all'}
+          llo=tryCatch(left[i,col[length(col)]],error=function(e) return('all'))
+          upp=tryCatch(Bs[regexpr(col[length(col)-1],Bs)>0],error=function(e) return('alpha_all'))
+          col=paste('_',col,'$',sep='')
+          lab=Bs[regexpr(col[length(col)],Bs)>0]
+          for(slab in lab){
+            
+            if(!(slab %in% names(counts))){counts[[slab]]=0}
+            counts[[slab]]=counts[[slab]]+1
+            
+            right=data.frame('upper'=upp,
+                             'lower'=lab,
+                             'response'=medians[[lup]]+
+                               as.numeric(as.data.frame(sims[slab])[counts[[slab]]][,1]))
+            if(length(col)<length(left)){
+              medians[[llo]]=right$response}
+            if(length(left)>1){out=rbind(out,cbind(repframe(left[i,],nrow(right)),right))}
+            else{out=rbind(out,cbind(setNames(as.data.frame(rep(left[i,],nrow(right))),names(left)),right))}}
+        }
+        else{
+          right=data.frame('upper'='alpha_all','lower'=Bs[1],'response'=sims[[Bs[[1]]]])
+          if(length(left)>1){out=rbind(out,cbind(repframe(left[i,],nrow(right)),right))}
+          else{
+            if(length(l==1)){out=rbind(out,cbind(setNames(as.data.frame(rep(left[i,],nrow(right))),names(left)),right))}
+            else{out=rbind(out,right)}}
+          medians[['all']]=right$response[right$upper=='alpha_all']}}
+      progress(match(a,alphas)/length(alphas),50)}}
   out=na.omit(out)#[c(T,rep(F,99)),] #culling
   out$response[out$lower %in% A]=out$response[out$lower %in% A]*as.numeric(hbm@scales[1])
   cat('\nbacktransforming data\n')
@@ -501,7 +510,9 @@ setMethod("write_model","hbm_object",function(hbm){
                           strsplit(gsub('\\((.+)\\)','\\1',
                                         as.character(hbm@input$model)[3]),
                                    ' \\+ ')[[1]])
-  hbm@vars=strsplit(as.character(hbm@input$model)[3],'\\(')[[1]]|>
+  formula=as.character(hbm@input$model)[3]
+  if(regexpr('\\(',formula)<0){formula=paste0(formula,' + ()')}
+  hbm@vars=strsplit(formula,'\\(')[[1]]|>
     (\(x)gsub(')','',x))()|>
     (\(x)gsub(' \\+ ',',',x))()|>
     (\(x)gsub(',$','',x))()|>
@@ -534,7 +545,8 @@ setMethod("write_model","hbm_object",function(hbm){
   for(q in hbm@vars[[2]]){
     if(q!=''){hbm@data[q]=factor(hbm@data[,q],levels=unique(hbm@data[,q]))}}
   
-  hbm@data=hbm@data[order(hbm@data[,hbm@vars[[2]][1]]),]                        
+  if(length(hbm@vars[[2]])>0){
+    hbm@data=hbm@data[order(hbm@data[,hbm@vars[[2]][1]]),]}                        
   rv=is=c();c=0
   hbm@vars[[2]]=tryCatch(c('',hbm@vars[[2]]),error=function(e){c('')})
   x=paste(c('',rep('[',length(hbm@vars[[2]])-1)),hbm@vars[[2]],sep='')|>
@@ -1027,10 +1039,10 @@ cowplot::plot_grid(
 # o1=hbm(data,length~mass+(site),dist='dgamma')
 # fits(o1)
 set.seed(1)
-o1=hbm(data,length~mass+(site))
-ocean(o1,'mass','site')
+o1=hbm(data,length~mass)
+ocean(o1,'mass',interaction='site')
 resid(o1)
-s=summary(o1)
+summary(o1)
 fits(o1)
 
 set.seed(1)

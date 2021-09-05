@@ -1,24 +1,18 @@
 model{
 for(i in 1:N){
-	offspring[i]~dgamma(sigma,sigma/exp(mu[i]))
-	offspring.sim[i]~dgamma(sigma,sigma/exp(mu[i]))
-	offspring.res[i]=offspring[i]-mu[i]
-	offspring.sres[i]=offspring.sim[i]-mu[i]
-	mu[i]=alpha+alpha_site[site[i]]+
-	(beta_mass+beta_mass_site[site[i]])*mass[i]}
-for(a in 1:Nsite){
-	alpha_site[a]~dnorm(0,atau_site)
-	beta_mass_site[a]~dnorm(0,tau_site)}
+	length[i]~dnorm(mu[i],tau)
+	length.sim[i]~dnorm(mu[i],tau)
+	length.res[i]=length[i]-mu[i]
+	length.sres[i]=length.sim[i]-mu[i]
+	mu[i]=alpha+(Alpha_int_site)*site[i]+
+	(beta_mass+(beta_int_sitemass)*site[i])*mass[i]}
+
 sigma~dunif(0,100)
 tau=1/(sigma*sigma)
-sigma_site~dunif(0,100)
-tau_site=1/(sigma_site*sigma_site)
-asigma~dunif(0,100)
-atau=1/(sigma*sigma)
-asigma_site~dunif(0,100)
-atau_site=1/(sigma_site*sigma_site)
 alpha~dnorm(0,0.01)
 beta_mass~dnorm(0,0.01)
-offspring.fit=sum(pow(offspring.res[],2))
-offspring.sfit=sum(pow(offspring.sres[],2))
+beta_int_sitemass~dnorm(0,0.01)
+Alpha_int_site~dnorm(0,0.01)
+length.fit=sum(pow(length.res[],2))
+length.sfit=sum(pow(length.sres[],2))
 }
