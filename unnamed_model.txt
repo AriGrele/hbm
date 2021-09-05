@@ -1,7 +1,7 @@
 model{
 for(i in 1:N){
-	survival[i]~dnorm(mu[i],tau)
-	survival.sim[i]~dnorm(mu[i],tau)
+	survival[i]~dbern(ilogit(mu[i]))
+	survival.sim[i]~dbern(ilogit(mu[i]))
 	survival.res[i]=survival[i]-mu[i]
 	survival.sres[i]=survival.sim[i]-mu[i]
 	mu[i]=alpha+alpha_site[site[i]]+

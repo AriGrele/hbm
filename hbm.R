@@ -911,6 +911,20 @@ setMethod("bass","hbm_object",function(hbm,groups,fill='lower',s=1,label='none',
         else{out[[g]]=cello2(h,v,s)}}}}
   return(out)})
 #################################################################################
+setMethod("resid","hbm_object",function(object){
+  sims=object@jags_model$sims.list
+  n=names(sims)
+  data=sims[n[regexpr('\\.s?fit$',n)>0]]|>
+    as.data.frame()|>
+    setNames(c('simulated','observed'))
+  g=ggplot(data)+
+    geom_density(aes(x=observed,color='Observed'),size=2)+
+    geom_density(aes(x=simulated,color='Simulated'),size=2,linetype='dashed')+
+    scale_color_manual(values=pals::ocean.speed(3)[2:3])+
+    labs(color='Type')+
+    xlab('Standardized sum of residuals^2')
+  return(g)})
+#################################################################################
 clamp=function(x,minimum,maximum){return(ifelse(x<minimum,minimum,ifelse(x>maximum,maximum,x)))}
 
 randseq=function(x,size){out=c();for(i in 1:size){out=c(out,sample(x,1))};return(out)}
@@ -1000,16 +1014,19 @@ cowplot::plot_grid(
 # fits(o1)
 set.seed(1)
 o1=hbm(data,length~mass+(site),dist='dnorm')
-polka(o1,'mass','site')
+ocean(o1,'mass','site')
+resid(o1)
 
 fits(o1)
 set.seed(1)
 o2=hbm(data,offspring~mass+(site),dist='dgamma')
+resid(o2)
 fits(o2)
 set.seed(1)
 
-o3=hbm(data,survival~mass+(site),dist='dnorm')
-fits(o3)
+o3=hbm(data,survival~mass+(site),dist='dbern')
+resid(o3)
+o3fits(o3)
 summary(o3)
 # 
 # data$sex=as.numeric(data$sex)
