@@ -1,4 +1,5 @@
 library(stringr);library(jagsUI);library(ggplot2)
+library(reshape2);library(cowplot)
 #################################################################################
 model_data=setClass('model_data',slots=list(
   'input'     ='call',
@@ -8,6 +9,7 @@ model_data=setClass('model_data',slots=list(
   'variables' ='vector',
   'vars'      ='list',
   'model'     ='character',
+  'formula'   ='character',
   'model_data'='list',
   'scales'    ='vector',
   'save'      ='vector',
@@ -195,6 +197,7 @@ semb=function(data,model,...){                                                  
   
   row=paste(row,collapse='\n')
   upper=paste('model {\nfor (i in 1:N){',row,'}',sep='\n')
+  #hbm@formula=upper
   new=c()
   for(l in 1:length(lefts)){
     base=gsub('\\[i\\]','',lefts[l])
@@ -575,6 +578,7 @@ setMethod("write_model","hbm_object",function(hbm){
       rn=c(rn,paste(int))}}
   
   top=str_interp("for(i in 1:N){\n\t${left}\n\tmu[i]=${paste(rn,collapse='+')}+\n\t${paste(right,collapse='+\n\t')}}")
+  hbm@formula=paste(paste(rn,collapse='+'),paste(right,collapse='+'),sep='+')
   s=t=c()
   rv=c(rv,rn_ints)
   
@@ -917,13 +921,23 @@ setMethod("resid","hbm_object",function(object){
   data=sims[n[regexpr('\\.s?fit$',n)>0]]|>
     as.data.frame()|>
     setNames(c('simulated','observed'))
-  g=ggplot(data)+
-    geom_density(aes(x=observed,color='Observed'),size=2)+
-    geom_density(aes(x=simulated,color='Simulated'),size=2,linetype='dashed')+
-    scale_color_manual(values=pals::ocean.speed(3)[2:3])+
-    labs(color='Type')+
-    xlab('Standardized sum of residuals^2')
-  return(g)})
+  attach(object@model_data,warn.conflicts=F)
+  attach(object@jags_model$mean,warn.conflicts=F)
+  x=c()
+  for(i in 1:object@model_data$N){x=c(x,eval(parse(text=object@formula)))}
+  object@model_data$predicted=x
+  detach()
+  g1=ggplot(as.data.frame(object@model_data),
+            aes_string(x=paste(object@variables[1],'predicted',sep='-')))+
+      geom_density()+
+      xlab('Standardized residuals')
+  g2=ggplot(data)+
+      geom_density(aes(x=observed,color='Observed'),size=2)+
+      geom_density(aes(x=simulated,color='Simulated'),size=2,linetype='dashed')+
+      scale_color_manual(values=pals::ocean.speed(3)[2:3])+
+      labs(color='Type')+
+      xlab('Standardized sum of residuals^2')
+  return(plot_grid(g1,g2))})
 #################################################################################
 clamp=function(x,minimum,maximum){return(ifelse(x<minimum,minimum,ifelse(x>maximum,maximum,x)))}
 
@@ -1013,11 +1027,12 @@ cowplot::plot_grid(
 # o1=hbm(data,length~mass+(site),dist='dgamma')
 # fits(o1)
 set.seed(1)
-o1=hbm(data,length~mass+(site),dist='dnorm')
+o1=hbm(data,length~mass+(site))
 ocean(o1,'mass','site')
 resid(o1)
-
+s=summary(o1)
 fits(o1)
+
 set.seed(1)
 o2=hbm(data,offspring~mass+(site),dist='dgamma')
 resid(o2)
