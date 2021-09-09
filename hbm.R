@@ -2,7 +2,7 @@ cat('\nLast updated 2021/09/09\n')
 library(stringr);library(jagsUI);library(ggplot2)
 library(reshape2);library(cowplot)
 #################################################################################
-model_data=setClass('model_data',slots=list(
+model_data=setClass('model_data',slots=list(                                    #class for model input to Jags
   'input'     ='call',
   'dist'      ='character',
   'model_dir' ='character',
@@ -14,8 +14,9 @@ model_data=setClass('model_data',slots=list(
   'model_data'='list',
   'scales'    ='vector',
   'save'      ='vector',
-  'filter'    ='data.frame'))
-run_model=setClass('run_model',slots=list(
+  'filter'    ='data.frame',
+  'format'    ='character'))
+run_model=setClass('run_model',slots=list(                                      #class for parameter input to Jags
   'n.adapt'   ='numeric',
   'n.burnin'  ='numeric',
   'n.iter'    ='numeric',
@@ -23,13 +24,13 @@ run_model=setClass('run_model',slots=list(
   'n.chains'  ='numeric',
   'jags_model'='jagsUI',
   'output'    ='data.frame'))
-hbm_data=setClass('hbm_object',slots=list(
+hbm_data=setClass('hbm_object',slots=list(                                      #class for HBMs
   'name'        ='character',
   'dir'         ='character',
   'data'        ='data.frame',
   'source_model'='character'),
   contains=c('model_data','run_model'))
-semb_data=setClass('semb_object',slots=list(
+semb_data=setClass('semb_object',slots=list(                                    #class for B
   'name'        ='character',
   'dir'         ='character',
   'data'        ='data.frame',
@@ -416,7 +417,7 @@ setMethod("format_model","hbm_object",function(hbm){
             counts[[slab]]=counts[[slab]]+1
             right=data.frame('upper'=upp,
                              'lower'=lab,
-                             'response'=medians[[lup]]+
+                             'response'=medians[[lup]]*(hbm@format=='difference')+
                                as.numeric(as.data.frame(sims[slab])[counts[[slab]]][,1]))
             if(length(col)<length(left)){
               medians[[llo]]=right$response}
@@ -454,7 +455,7 @@ setMethod("format_model","hbm_object",function(hbm){
             
             right=data.frame('upper'=upp,
                              'lower'=lab,
-                             'response'=medians[[lup]]+
+                             'response'=medians[[lup]]*(hbm@format=='difference')+
                                as.numeric(as.data.frame(sims[slab])[counts[[slab]]][,1]))
             if(length(col)<length(left)){
               medians[[llo]]=right$response}
@@ -479,7 +480,7 @@ setMethod("format_model","hbm_object",function(hbm){
   count=0
   cat('\nfixing hierarchy names\n')
   for(i in unique(names(filter))){
-    group=unique(filter[,regexpr(i,unique(names(filter)))>0])
+    group=unique(filter[,regexpr(i,names(filter))>0])
     group_filter=setNames(c('all',group[,2]),c('all',group[,1]))
     hbm@output[,i]=sapply(hbm@output[,i],\(x)group_filter[x])
     count=count+1
@@ -566,6 +567,9 @@ setMethod("write_model","hbm_object",function(hbm){
   rv=unique(rv)
   c=0
   
+  if(hbm@format=='difference'){formfilter=1:length(rv[[2]])}
+  else{formfilter=length(rv[[2]])}
+  
   for(q in rv[-1]){
     term=gsub('beta_','',gsub('\\[.+\\]','',q))[1]
     if(term%in%names(hbm@vars[[3]])){
@@ -574,8 +578,9 @@ setMethod("write_model","hbm_object",function(hbm){
         int_q=gsub('beta_',paste('beta_int_',item,sep=''),q)
         rv=c(rv,list(int_q))
         ints=c(ints,str_interp("(${paste(int_q,collapse='+')})*${item}[i][i]"))}
-      c=c+1;right=c(right,str_interp("(${paste(paste(q,collapse='+'),paste(ints,collapse='+'),sep='+')})*${hbm@vars[[1]][c]}[i]"))}
-    else{c=c+1;right=c(right,str_interp("(${paste(q,collapse='+')})*${hbm@vars[[1]][c]}[i]"))}}
+      c=c+1
+      right=c(right,str_interp("(${paste(paste(q[formfilter],collapse='+'),paste(ints,collapse='+'),sep='+')})*${hbm@vars[[1]][c]}[i]"))}
+    else{c=c+1;right=c(right,str_interp("(${paste(q[formfilter],collapse='+')})*${hbm@vars[[1]][c]}[i]"))}}
   
   rv=unique(rv)
   right=gsub('\\[i\\]\\)',')',gsub('\\[i\\]\\+','+',right))
@@ -590,7 +595,7 @@ setMethod("write_model","hbm_object",function(hbm){
       int=paste('(',paste(int,collapse='+'),')*',item,'[i]',sep='')
       rn=c(rn,paste(int))}}
   
-  top=str_interp("for(i in 1:N){\n\t${left}\n\tmu[i]=${paste(rn,collapse='+')}+\n\t${paste(right,collapse='+\n\t')}}")
+  top=str_interp("for(i in 1:N){\n\t${left}\n\tmu[i]=${paste(rn[formfilter],collapse='+')}+\n\t${paste(right,collapse='+\n\t')}}")
   hbm@formula=paste(paste(rn,collapse='+'),paste(right,collapse='+'),sep='+')
   s=t=c()
   rv=c(rv,rn_ints)
@@ -617,13 +622,16 @@ setMethod("write_model","hbm_object",function(hbm){
       types=c()
       for(r in rv){
         if(regexpr('^[aA]lpha',r[1])>0){
-          types=c(types,str_interp('~dnorm(0,a${t[q+1]})'))}
-        else{types=c(types,str_interp('~dnorm(0,${t[q+1]})'))}}
-      
+          mu=c(0,0)
+          if(hbm@format=='mean'){mu=as.data.frame(rv)[q,]}
+          types=c(types,str_interp('~dnorm(${mu[1]},a${t[q+1]})'))}
+        else{types=c(types,str_interp('~dnorm(${mu[2]},${t[q+1]})'))}}
+      if(hbm@format=='mean'){
+        if(q==1){types=gsub('[i]','',types,fixed=T)}
+        else{types=gsub(is[q],paste(paste('[',letters[1:(q-1)],']',sep=''),collapse=''),types,fixed=T)}}
       lines=gsub(is[q+1],paste(paste('[',letters[1:q],']',sep=''),collapse=''),
-                 paste(
-                   paste(as.data.frame(rv)[q+1,],types,sep=''),
-                   collapse='\n\t'),
+                 paste(paste(as.data.frame(rv)[q+1,],types,sep=''),
+                       collapse='\n\t'),
                  fixed=T)
       middle=c(middle,paste(loop,lines,sep='\n\t'))}}
     
@@ -656,7 +664,8 @@ hbm=function(data,model,...){
                 'n.burnin'    =1000,
                 'n.iter'      =10000,
                 'n.chains'    =4,
-                'source_model'='')
+                'source_model'='',
+                'format'      ='difference')
   
   default=c(list('data' =data,
                  'input'=match.call(expand.dots=T)),
@@ -696,6 +705,11 @@ hbm=function(data,model,...){
   return(output)}
 #################################################################################
 wave=function(data,var,s){                                                      #create single distribution plots, takes argument of model output, focal variables, scale
+  lowers=names(data)[!(names(data)%in%c(var$var,           #only look at overall effect in lower levels
+                                 'upper','lower','response'))]
+  check=numeric(nrow(data))+1
+  for(l in lowers){check=check*(data[,l]=='all')}
+  data=data[check==1,]
   g=ggplot()+
     geom_vline(xintercept = 0,size=2*s,linetype='dashed')+
     geom_density(data=data[data[,var$var[1]]=='all',],
@@ -707,6 +721,11 @@ wave=function(data,var,s){                                                      
 
 wave2=function(data,var,s){                                                     #create multi-distribution plots, takes argument of model output, focal variables, scale
   data=subset(data,!(data[,var$var[1]]=='all'&data[,var$var[2]]=='all'))
+  lowers=names(data)[!(names(data)%in%c(var$var,           #only look at overall effect in lower levels
+                                        'upper','lower','response'))]
+  check=numeric(nrow(data))+1
+  for(l in lowers){check=check*(data[,l]=='all')}
+  data=data[check==1,]
   out=ggplot()+
       geom_vline(xintercept = 0,size=2*s,linetype='dashed')+
       geom_density(data=data[data[,var$var[1]]=='all',],
@@ -717,8 +736,13 @@ wave2=function(data,var,s){                                                     
       facet_grid(reformulate(var$var[2]))
   return(list(out))}
 
-wave3=function(data,var,s,int){                                                     #create interaction + distribution plots, takes argument of model output, focal variables, scale
+wave3=function(data,var,s,int){                                                 #create interaction + distribution plots, takes argument of model output, focal variables, scale
   data=subset(data,regexpr(int,lower)>0)
+  lowers=names(data)[!(names(data)%in%c(var$var,           #only look at overall effect in lower levels
+                                        'upper','lower','response'))]
+  check=numeric(nrow(data))+1
+  for(l in lowers){check=check*(data[,l]=='all')}
+  data=data[check==1,]
   data$interact=as.factor(regexpr(int,data$lower)>0)
   out=ggplot()+
     geom_vline(xintercept = 0,size=2*s,linetype='dashed')+
@@ -744,12 +768,16 @@ setMethod("ocean","hbm_object",function(hbm,vars,fill='lower',s=1,interaction='n
   return(unlist(out, recursive = FALSE))})
 #################################################################################
 dotplot=function(data,var,s){                                                   #create single dotplot, takes argument of model output, focal variables, scale
+  lowers=names(data)[!(names(data)%in%c(var$var,           #only look at overall effect in lower levels
+                                        'upper','lower','response'))]
+  check=numeric(nrow(data))+1
+  for(l in lowers){check=check*(data[,l]=='all')}
+  data=data[check==1,]
   df=setNames(as.data.frame(matrix(ncol=4)),c('variable','y2.5','y97.5','y50'))
   for(i in unique(data[,var$var[1]])){
     q=data$response[data[,var$var[1]]==i]
     df=rbind(df,data.frame('variable'=i,'y2.5'=quantile(q,0.05),
                            'y97.5'=quantile(q,0.95),'y50'=quantile(q,.5)))}
-  df$variable=factor(df$variable,levels=df$variable[order(df$y50)])
   g=ggplot(data)+
     geom_hline(yintercept=0,size=2*s)+
     geom_boxplot(data=na.omit(df),width=.05*s,lwd=s,
@@ -761,6 +789,11 @@ dotplot=function(data,var,s){                                                   
   return(g)}
 
 dotplot2=function(data,var,s){                                                  #create multi-dotplots (new version), takes argument of model output, focal variables, scale
+  lowers=names(data)[!(names(data)%in%c(var$var,           #only look at overall effect in lower levels
+                                        'upper','lower','response'))]
+  check=numeric(nrow(data))+1
+  for(l in lowers){check=check*(data[,l]=='all')}
+  data=data[check==1,]
   df=setNames(as.data.frame(matrix(ncol=5)),
               c(var$var[2],'v2','y2.5','y97.5','y50'))
   for(i in unique(data[,var$var[2]])){
@@ -771,7 +804,6 @@ dotplot2=function(data,var,s){                                                  
                                       'y97.5'=quantile(q,0.95),
                                       'y50'=quantile(q,.5)),
                            c(var$var[2],'v2','y2.5','y97.5','y50')))}}
-  df$v2=factor(df$variable,levels=df$v2[order(df$y50)])
   g=ggplot(data)+
     geom_hline(yintercept=0,size=2*s)+
     facet_grid(reformulate(var$var[2]))+
@@ -787,13 +819,17 @@ dotplot2=function(data,var,s){                                                  
 
 dotplot3=function(data,var,s,int){                                                   #create single dotplot, takes argument of model output, focal variables, scale
   data=subset(data,regexpr(int,lower)>0)
+  lowers=names(data)[!(names(data)%in%c(var$var,           #only look at overall effect in lower levels
+                                        'upper','lower','response'))]
+  check=numeric(nrow(data))+1
+  for(l in lowers){check=check*(data[,l]=='all')}
+  data=data[check==1,]
   data$interact=as.factor(regexpr(int,data$lower)>0)
   df=setNames(as.data.frame(matrix(ncol=4)),c('variable','y2.5','y97.5','y50'))
   for(i in unique(data[,var$var[1]])){
     q=data$response[data[,var$var[1]]==i]
     df=rbind(df,data.frame('variable'=i,'y2.5'=quantile(q,0.05),
                            'y97.5'=quantile(q,0.95),'y50'=quantile(q,.5)))}
-  df$variable=factor(df$variable,levels=df$variable[order(df$y50)])
   g=ggplot(data)+
     geom_hline(yintercept=0,size=2*s)+
     geom_boxplot(data=na.omit(df),width=.05*s,lwd=s,
@@ -848,6 +884,11 @@ mgroup=function(data,groups){                                                   
 
 #################################################################################
 cello=function(data,var,s,label='none',lsize=1){                                #create single violin plot with CI bars, takes argument of model output, focal variables, scale
+  lowers=names(data)[!(names(data)%in%c(var$var,           #only look at overall effect in lower levels
+                                        'upper','lower','response'))]
+  check=numeric(nrow(data))+1
+  for(l in lowers){check=check*(data[,l]=='all')}
+  data=data[check==1,]
   df=setNames(as.data.frame(matrix(ncol=5)),c('variable','y2.5','y97.5','y50','lab'))
   for(i in unique(data[,var$var[1]])){
     q=data$response[data[,var$var[1]]==i]
@@ -870,6 +911,11 @@ cello=function(data,var,s,label='none',lsize=1){                                
   return(g)}
 
 cello2=function(data,var,s){                                                    #create multi-violin plots with CI bars, takes argument of model output, focal variables, scale
+  lowers=names(data)[!(names(data)%in%c(var$var,           #only look at overall effect in lower levels
+                                        'upper','lower','response'))]
+  check=numeric(nrow(data))+1
+  for(l in lowers){check=check*(data[,l]=='all')}
+  data=data[check==1,]
   df=setNames(as.data.frame(matrix(ncol=5)),
               c(var$var[2],'v2','y2.5','y97.5','y50'))
   for(i in unique(data[,var$var[2]])){
@@ -893,6 +939,11 @@ cello2=function(data,var,s){                                                    
 
 cello3=function(data,var,s,label='none',lsize=1,int){                                #create single violin plot with CI bars, takes argument of model output, focal variables, scale
   data=subset(data,regexpr(int,lower)>0)
+  lowers=names(data)[!(names(data)%in%c(var$var,           #only look at overall effect in lower levels
+                                        'upper','lower','response'))]
+  check=numeric(nrow(data))+1
+  for(l in lowers){check=check*(data[,l]=='all')}
+  data=data[check==1,]
   data$interact=as.factor(regexpr(int,data$lower)>0)
   df=setNames(as.data.frame(matrix(ncol=5)),c('variable','y2.5','y97.5','y50','lab'))
   for(i in unique(data[,var$var[1]])){

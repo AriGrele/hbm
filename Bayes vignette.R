@@ -1,3 +1,4 @@
+source('hbm.R')
 #################################################################################
 clamp=function(x,minimum,maximum){return(ifelse(x<minimum,minimum,ifelse(x>maximum,maximum,x)))}
 
@@ -87,8 +88,8 @@ cowplot::plot_grid(
 # o1=hbm(data,length~mass+(site),dist='dgamma')
 # fits(o1)
 set.seed(1)
-o1=hbm(data,length~mass)
-ocean(o1,'mass',interaction='site')
+o1=hbm(mix,length~mass+(site+species))
+bass(o1,'mass','species')
 resid(o1)
 summary(o1)
 fits(o1)
