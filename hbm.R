@@ -621,11 +621,11 @@ setMethod("write_model","hbm_object",function(hbm){
       loop=str_interp('for(${letters[q]} in 1:N${hbm@vars[[2]][-1][q]}${c("",paste("[",letters,"]",sep=""))[q]}){')
       types=c()
       for(r in rv){
+        mu=0
+        if(hbm@format=='mean'){mu=r[q]}
         if(regexpr('^[aA]lpha',r[1])>0){
-          mu=c(0,0)
-          if(hbm@format=='mean'){mu=as.data.frame(rv)[q,]}
-          types=c(types,str_interp('~dnorm(${mu[1]},a${t[q+1]})'))}
-        else{types=c(types,str_interp('~dnorm(${mu[2]},${t[q+1]})'))}}
+          types=c(types,str_interp('~dnorm(${mu},a${t[q+1]})'))}
+        else{types=c(types,str_interp('~dnorm(${mu},${t[q+1]})'))}}
       if(hbm@format=='mean'){
         if(q==1){types=gsub('[i]','',types,fixed=T)}
         else{types=gsub(is[q],paste(paste('[',letters[1:(q-1)],']',sep=''),collapse=''),types,fixed=T)}}

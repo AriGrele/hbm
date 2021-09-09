@@ -88,7 +88,7 @@ cowplot::plot_grid(
 # o1=hbm(data,length~mass+(site),dist='dgamma')
 # fits(o1)
 set.seed(1)
-o1=hbm(mix,length~mass+(site+species))
+o1=hbm(mix,length~mass+sex+(site+species),format='mean')
 bass(o1,'mass','species')
 resid(o1)
 summary(o1)
