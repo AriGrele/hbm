@@ -15,7 +15,7 @@ model_data=setClass('model_data',slots=list(                                    
   'scales'    ='vector',
   'save'      ='vector',
   'filter'    ='data.frame',
-  'subfilter' ='list'
+  'subfilter' ='list',
   'format'    ='character'))
 run_model=setClass('run_model',slots=list(                                      #class for parameter input to Jags
   'n.adapt'   ='numeric',
@@ -307,6 +307,13 @@ ddic=function(mod){                                                             
                                    'delta_DIC'=dics[i]-dics[j]))}}}
     return(na.omit(out))}}
 #################################################################################
+pastedown=function(data,vars){
+  lnext=data[,vars[1]]
+  for(col in vars[-1]){
+    lnext=paste(lnext,data[,col],sep='_<>_')
+    data[,col]=lnext}
+  return(data)}
+#################################################################################
 setGeneric("format_data", function(hbm) standardGeneric("format_data"))
 setMethod("format_data","hbm_object",function(hbm){
   hbm@model_data=list('N'=nrow(hbm@data))
@@ -324,32 +331,29 @@ setMethod("format_data","hbm_object",function(hbm){
     else{hbm@model_data[n]=list(hbm@data[,n])}}
   
   convert=list()
-  
-  pastedown=function(data,vars){
-    lnext=data[,vars[1]]
-    for(col in vars[-1]){
-      lnext=paste(lnext,data[,col],sep='_<>_')
-      data[,col]=lnext}
-    return(data)}
-  
-  
   if(length(hbm@vars[[2]])>1){
+    cols=unique(hbm@data[hbm@vars[[2]][-1]])
+    cols=cbind(cols,pastedown(cols,hbm@vars[[2]][-1]))
+    nc=ncol(cols)
+    for(i in (nc/2+1):nc){
+      cols[,i]=as.numeric(as.factor(cols[,i]))
+      counts=ilen(hbm@data,hbm@vars[[2]][-1][1:(i-nc/2)])
+      rename=expand(counts)|>setNames(unique(cols[,i]))
+      cols=cbind(cols,sapply(cols[,i],\(x)rename[x]))
+    }
+    hbm@filter=setNames(cols,rep(hbm@vars[[2]][-1],3))
+    hbm@filter[regexpr('site',names(hbm@filter))>0]
+    hbm@filter[1:length(hbm@vars[[2]][-1])]=
+      pastedown(hbm@filter[1:length(hbm@vars[[2]][-1])],hbm@vars[[2]][-1])
     hbm@data=pastedown(hbm@data,hbm@vars[[2]][-1])
+    for(n in hbm@vars[[2]][-1]){
+      filter=hbm@filter[regexpr(n,names(hbm@filter))>0]
+      filter=setNames(filter[,3],as.character(filter[,1]))
+      hbm@model_data[[n]]=sapply(hbm@data[,n],\(x)filter[as.character(x)])}
     for(n in 2:length(hbm@vars[[2]])){
-      hbm@model_data[hbm@vars[[2]][n]]=items(hbm@data,hbm@vars[[2]][n])|>list()
-      
       convert[[hbm@vars[[2]][n]]]=flip(hbm@model_data[[hbm@vars[[2]][n]]])
       counts=ilen(hbm@data,hbm@vars[[2]][2:n])
-      if(n>2){}
-      rename=expand(counts)|>
-        setNames(unique(hbm@model_data[hbm@vars[[2]][n]][[1]]))
-      
-      hbm@model_data[hbm@vars[[2]][n]][[1]]=sapply(hbm@model_data[hbm@vars[[2]][n]][[1]],
-                                                   \(x)as.numeric(rename[as.character(x)]))
-      hbm@model_data[paste('N',hbm@vars[[2]][n],sep='')]=list(counts)
-      hbm@data[,hbm@vars[[2]][n]]=gsub('^.+_<>_','',hbm@data[,hbm@vars[[2]][n]])
-      hbm@data=hbm@data[order(hbm@data[,hbm@vars[[2]][n]]),]
-      }}
+      hbm@model_data[paste('N',hbm@vars[[2]][n],sep='')]=list(counts)}}
   hbm@scales=list()
   
   for(m in hbm@variables){
@@ -370,13 +374,6 @@ setMethod("format_model","hbm_object",function(hbm){
   vars=hbm@vars[[2]][-1]
   o=as.data.frame(matrix(nrow=hbm@model_data$N,ncol=2*length(vars)))|>
     setNames(rep(vars,each=2))
-  if(length(vars)>0){
-    for(i in 1:(length(vars))){
-      ind=(i-1)*2+1
-      o[ind]=hbm@model_data[[vars[i]]]
-      o[ind+1]=names(hbm@model_data[[vars[i]]])}}
-  filter=unique(o)
-  hbm@filter=filter
   sims=hbm@jags_model$sims.list
   for(n in names(sims)){if(regexpr('\\.s?fit$',n)>0){sims[[n]]=NULL}}
   name=names(sims)
@@ -498,10 +495,14 @@ setMethod("format_model","hbm_object",function(hbm){
   hbm@output=out
   count=0
   cat('\nfixing hierarchy names\n')
-  for(i in unique(names(filter))){
+  filterout=pastedown(hbm@output,hbm@vars[[2]][-1])
+  filter=cbind(hbm@filter,pastedown(hbm@filter[(-2*length(hbm@vars[[2]][-1])):0],hbm@vars[[2]][-1]))
+  for(i in unique(names(hbm@filter))){
+    filterout[,i][hbm@output[,i]=='all']='all'
     group=unique(filter[,regexpr(i,names(filter))>0])
-    group_filter=setNames(c('all',group[,2]),c('all',group[,1]))
-    hbm@output[,i]=sapply(hbm@output[,i],\(x)group_filter[x])
+    group_filter=setNames(c('all',as.character(group[,1])),c('all',as.character(group[,4])))
+    hbm@output[,i]=sapply(filterout[,i],\(x)group_filter[as.character(x)])
+    hbm@output[,i]=gsub('^.+_<>_','',hbm@output[,i])
     count=count+1
     progress(count/length(unique(names(filter))),50)}
   return(hbm)})

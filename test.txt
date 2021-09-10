@@ -30,6 +30,4 @@ atau_species=1/(sigma_species*sigma_species)
 alpha~dnorm(0,0.01)
 beta_mass~dnorm(0,0.01)
 beta_sex~dnorm(0,0.01)
-length.fit=sum(pow(length.res[],2))
-length.sfit=sum(pow(length.sres[],2))
 }

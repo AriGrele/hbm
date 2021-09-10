@@ -60,36 +60,18 @@ cowplot::plot_grid(
   ggplot(data,aes(x=length,color=site))+geom_density(),
   ggplot(data,aes(x=offspring,color=site))+geom_density(),
   ggplot(data,aes(x=survival,color=site))+geom_density(bw=.01),ncol=3)
+mix$species[mix$site=='A']=c('fish','moose')
+mix$species[mix$site=='B']=c('s1','s4')
+ggplot(mix,aes(x=mass,y=length,color=species))+
+  geom_point()+
+  geom_smooth(method=lm)+
+  facet_grid(cols=vars(site))
 
-
-
-
-# o=hbm(rbind(data,data),length~mass+(site))
-# summary(o) 
-# ocean(o,'mass','site')[[1]]
-# polka(o,'mass','site')[[1]]
-# bass(o,'mass','site')[[1]]
-# 
-# #multiple levels
-# o=hbm(data,length~mass+(site+species))
-# summary(o) 
-# ocean(o,'mass','species')[[1]]
-# polka(o,'mass','species')[[1]]
-# bass(o,'mass','species')[[1]]
-# 
-# #interaction
-# o=hbm(data,length~mass:sex+(site))
-# summary(o) 
-# ocean(o,'mass','site',interaction='sex')[[1]]
-# polka(o,'mass','site',interaction='sex')[[1]]
-# bass(o,'mass','site',interaction='sex')[[1]]
-# 
-# set.seed(1)
-# o1=hbm(data,length~mass+(site),dist='dgamma')
-# fits(o1)
 set.seed(1)
-o1=hbm(mix,length~mass+sex+(site+species),format='mean')
-bass(o1,'mass','species')
+source('hbm.R')
+
+o1=hbm(mix,length~mass+sex+(site+species))
+ocean(o1,'mass','species')
 resid(o1)
 summary(o1)
 fits(o1)
