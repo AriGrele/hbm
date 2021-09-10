@@ -15,6 +15,7 @@ model_data=setClass('model_data',slots=list(                                    
   'scales'    ='vector',
   'save'      ='vector',
   'filter'    ='data.frame',
+  'subfilter' ='list'
   'format'    ='character'))
 run_model=setClass('run_model',slots=list(                                      #class for parameter input to Jags
   'n.adapt'   ='numeric',
@@ -146,13 +147,10 @@ flip=function(x){                                                               
   for(i in 1:length(x)){o=rbind(o,data.frame('i'=x[i],'name'=names(x[i])))}     #iterate through items and append names to frame
   return(with(unique(na.omit(o)),setNames(name,i)))}                            #return renamed names
 #################################################################################
-items=function(data,v,x=1){                                                     #recursive function for generating named list from data.frame columns, take argument of dataframe, vector of col names
-  o=c()                                                                         #define var
-  d=as.numeric(as.factor(data[,v[x]]))                                          #characters to numbers
-  d=setNames(d,data[,v[x]])                                                     #rename based on original values
-  n=setNames(unique(data[,v[x]]),unique(d))                                     
-  if(x==length(v)){return(d)}                                                   #return on final value
-  else{for(i in unique(d)){o=c(o,items(data[d==i,],v,x+1))};return(o)}}         #otherwise repeat for sub-hierarchies
+items=function(data,v){                                                     #recursive function for generating named list from data.frame columns, take argument of dataframe, vector of col names                                                                       #define var
+  d=as.numeric(as.factor(data[,v]))                                          #characters to numbers
+  d=setNames(d,gsub('^.+_<>_','',data[,v]))                                                     #rename based on original values
+  return(d)}                                                           ###         #otherwise repeat for sub-hierarchies
 #################################################################################
 semb=function(data,model,...){                                                   #write and compute Bayesian structural equation models, takes arguments of model string, data, directory to save to
   output=new('semb_object')
@@ -326,11 +324,32 @@ setMethod("format_data","hbm_object",function(hbm){
     else{hbm@model_data[n]=list(hbm@data[,n])}}
   
   convert=list()
-  if(length(hbm@vars[[2]])>1){for(n in 2:length(hbm@vars[[2]])){
-    hbm@model_data[hbm@vars[[2]][n]]=list(items(hbm@data,hbm@vars[[2]][2:n]))
-    convert[[hbm@vars[[2]][n]]]=flip(hbm@model_data[[hbm@vars[[2]][n]]])
-    hbm@model_data[paste('N',hbm@vars[[2]][n],sep='')]=
-      list(ilen(hbm@data,hbm@vars[[2]][2:n]))}}
+  
+  pastedown=function(data,vars){
+    lnext=data[,vars[1]]
+    for(col in vars[-1]){
+      lnext=paste(lnext,data[,col],sep='_<>_')
+      data[,col]=lnext}
+    return(data)}
+  
+  
+  if(length(hbm@vars[[2]])>1){
+    hbm@data=pastedown(hbm@data,hbm@vars[[2]][-1])
+    for(n in 2:length(hbm@vars[[2]])){
+      hbm@model_data[hbm@vars[[2]][n]]=items(hbm@data,hbm@vars[[2]][n])|>list()
+      
+      convert[[hbm@vars[[2]][n]]]=flip(hbm@model_data[[hbm@vars[[2]][n]]])
+      counts=ilen(hbm@data,hbm@vars[[2]][2:n])
+      if(n>2){}
+      rename=expand(counts)|>
+        setNames(unique(hbm@model_data[hbm@vars[[2]][n]][[1]]))
+      
+      hbm@model_data[hbm@vars[[2]][n]][[1]]=sapply(hbm@model_data[hbm@vars[[2]][n]][[1]],
+                                                   \(x)as.numeric(rename[as.character(x)]))
+      hbm@model_data[paste('N',hbm@vars[[2]][n],sep='')]=list(counts)
+      hbm@data[,hbm@vars[[2]][n]]=gsub('^.+_<>_','',hbm@data[,hbm@vars[[2]][n]])
+      hbm@data=hbm@data[order(hbm@data[,hbm@vars[[2]][n]]),]
+      }}
   hbm@scales=list()
   
   for(m in hbm@variables){
