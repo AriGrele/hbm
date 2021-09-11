@@ -136,10 +136,10 @@ response=function(hbm){
          'dbern'=str_interp('${hbm@dist}(ilogit(mu[i]))')))}
 #################################################################################
 ilen=function(data,v,x=1){                                                      #returns counts of factors in each level of hierarchy, take argument of data.frame, vector of col names
-  o=c()                                                                         #define var
+  o=list()                                                                         #define var
   d=as.numeric(as.factor(data[,v[x]]))                                          #characters to numbers
   if(x==length(v)){return(length(unique(d)))}                                   #return on final value
-  else{for(i in unique(d)){o[i]=(ilen(data[d==i,],v,x+1))};return(o)}}          #otherwise repeat for sub-hierarchies 
+  else{for(i in unique(d)){o[[i]]=(ilen(data[d==i,],v,x+1))};return(o)}}          #otherwise repeat for sub-hierarchies 
 #################################################################################
 flip=function(x){                                                               #takes a named vector and returns vector of names, now named for the values they represent in original vector
   if(is.list(x)){x=x[[1]]}                                                      #edge use case
@@ -337,12 +337,12 @@ setMethod("format_data","hbm_object",function(hbm){
     nc=ncol(cols)
     for(i in (nc/2+1):nc){
       cols[,i]=as.numeric(as.factor(cols[,i]))
-      counts=ilen(hbm@data,hbm@vars[[2]][-1][1:(i-nc/2)])
+      cols=cols[order(cols[,i]),]
+      counts=unlist(ilen(hbm@data,hbm@vars[[2]][-1][1:(i-nc/2)]))
       rename=expand(counts)|>setNames(unique(cols[,i]))
       cols=cbind(cols,sapply(cols[,i],\(x)rename[x]))
     }
     hbm@filter=setNames(cols,rep(hbm@vars[[2]][-1],3))
-    hbm@filter[regexpr('site',names(hbm@filter))>0]
     hbm@filter[1:length(hbm@vars[[2]][-1])]=
       pastedown(hbm@filter[1:length(hbm@vars[[2]][-1])],hbm@vars[[2]][-1])
     hbm@data=pastedown(hbm@data,hbm@vars[[2]][-1])
@@ -353,7 +353,7 @@ setMethod("format_data","hbm_object",function(hbm){
     for(n in 2:length(hbm@vars[[2]])){
       convert[[hbm@vars[[2]][n]]]=flip(hbm@model_data[[hbm@vars[[2]][n]]])
       counts=ilen(hbm@data,hbm@vars[[2]][2:n])
-      hbm@model_data[paste('N',hbm@vars[[2]][n],sep='')]=list(counts)}}
+      hbm@model_data[[paste('N',hbm@vars[[2]][n],sep='')]]=unlist(counts)}}
   hbm@scales=list()
   
   for(m in hbm@variables){
@@ -564,9 +564,6 @@ setMethod("write_model","hbm_object",function(hbm){
         str_interp('${as.character(hbm@input$model)[2]}.sres[i]=${as.character(hbm@input$model)[2]}.sim[i]-mu[i]'))
   left=paste(new,collapse='\n\t')
   
-  for(q in hbm@vars[[2]]){
-    if(q!=''){hbm@data[q]=factor(hbm@data[,q],levels=unique(hbm@data[,q]))}}
-  
   if(length(hbm@vars[[2]])>0){
     hbm@data=hbm@data[order(hbm@data[,hbm@vars[[2]][1]]),]}                        
   rv=is=c();c=0
@@ -638,7 +635,9 @@ setMethod("write_model","hbm_object",function(hbm){
   
   if(length(hbm@vars[[2]])>1){
     for(q in 1:(length(hbm@vars[[2]])-1)){
-      loop=str_interp('for(${letters[q]} in 1:N${hbm@vars[[2]][-1][q]}${c("",paste("[",letters,"]",sep=""))[q]}){')
+      groupcode=''
+      if(q>1){groupcode=paste(paste("[",letters[1:(q-1)],"]",sep=""),collapse="")}
+      loop=str_interp('for(${letters[q]} in 1:N${hbm@vars[[2]][-1][q]}${groupcode}){')
       types=c()
       for(r in rv){
         mu=0

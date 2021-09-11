@@ -70,7 +70,7 @@ ggplot(mix,aes(x=mass,y=length,color=species))+
 set.seed(1)
 source('hbm.R')
 
-o1=hbm(mix,length~mass+sex+(site+species))
+o1=hbm(mix,length~mass+(site+species+sex),source_model='test')
 ocean(o1,'mass','species')
 resid(o1)
 summary(o1)
