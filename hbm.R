@@ -55,7 +55,7 @@ setMethod("summary","hbm_object",function(object){                              
   return(a)})
 #################################################################################
 setGeneric("traces", function(hbm,cull) standardGeneric("traces"))
-setMethod("traces","hbm_object",function(hbm,cull=0){                           #create traceplots from hbm output, takes arguments of model, directory to save to, amount to cull from output
+setMethod("traces","run_model",function(hbm,cull=0){                           #create traceplots from hbm output, takes arguments of model, directory to save to, amount to cull from output
   samples=hbm@jags_model$samples                                                #select samples and columns
   cols=colnames(hbm@jags_model$samples[[1]])
   allucols=unique(gsub('\\[.+]$','',cols));ucols=allucols[1]                    #correct colnames
@@ -175,6 +175,7 @@ bsem=function(data,model,...){                                                  
   
   default=c(list('data' =data,
                  'input'=match.call(expand.dots=T)),
+                 'model'=model,
             lapply(names(defaults),\(x)ifelse(is.null(param[[x]]),
                                               defaults[[x]],
                                               param[[x]]))|>
@@ -185,7 +186,33 @@ bsem=function(data,model,...){                                                  
       cat('Invalid input for variable "',d,'"\n',sep='')
       return()}}
 
-  rows=str_split(model,'\n')[[1]]
+  output=tryCatch(write_bsem(output),error=\(x){print(x);return(output)})
+  
+  output@model_data=list('N'=nrow(output@data))
+  for(o in unique(output@variables)){output@model_data=c(output@model_data,
+                                     setNames(list(output@data[,o]),
+                                              paste('y.',o,sep='')))}
+  
+  inits=function(){list(sigma=rep(1,length(lefts)))}  
+  parameters=c(parameters,c(LETTERS,letters)[1:length(lefts)])
+  output@jags_model=tryCatch(jags(output@model_data,
+                                  inits,
+                                  parameters,
+                                  paste0(output@dir,'/',output@name,'.jags'),
+                                  n.chains=output@n.chains,
+                                  n.thin=output@n.thin,
+                                  n.iter=output@n.iter,
+                                  n.burnin=output@n.burnin,
+                                  parallel=F),
+                             error=function(e){print(e);return(NULL)})
+  
+  cat('\nMaking trace plots\n')
+  tryCatch(traces(output,0),error=function(e){print(e)})
+  return(output)}
+#################################################################################
+setGeneric('write_bsem',function(hbm) standardGeneric('write_bsem'))
+setMethod('write_bsem','model_data',function(hbm){
+  rows=str_split(hbm@model,'\n')[[1]]
   row=c();lefts=c();rights=c();old=c()
   for(r in 1:length(rows)){
     item=c(LETTERS,letters)[r]
@@ -204,9 +231,9 @@ bsem=function(data,model,...){                                                  
     right=paste(new,collapse=' + ')
     row=c(row,paste(left,right,sep=' = '))}
   
+  hbm@variables=old
   row=paste(row,collapse='\n')
   upper=paste('model {\nfor (i in 1:N){',row,'}',sep='\n')
-  #hbm@formula=upper
   new=c()
   for(l in 1:length(lefts)){
     base=gsub('\\[i\\]','',lefts[l])
@@ -241,28 +268,9 @@ bsem=function(data,model,...){                                                  
   sink(paste0(output@dir,'/',output@name,'.jags'))
   cat(formula,fill=T)
   sink()
-  
-  output@model_data=list('N'=nrow(output@data))
-  for(o in unique(old)){output@model_data=c(output@model_data,
-                                     setNames(list(output@data[,o]),
-                                              paste('y.',o,sep='')))}
-  
-  inits=function(){list(sigma=rep(1,length(lefts)))}  
-  parameters=c(parameters,c(LETTERS,letters)[1:length(lefts)])
-  output@jags_model=tryCatch(jags(output@model_data,
-                                  inits,
-                                  parameters,
-                                  paste0(output@dir,'/',output@name,'.jags'),
-                                  n.chains=output@n.chains,
-                                  n.thin=output@n.thin,
-                                  n.iter=output@n.iter,
-                                  n.burnin=output@n.burnin,
-                                  parallel=F),
-                             error=function(e){print(e);return(NULL)})
-  
-  cat('\nMaking trace plots\n')
-  tryCatch(traces(output),error=function(e){print(e)})
-  return(output)}
+  return(hbm)
+})
+
 #################################################################################
 setGeneric("fits", function(obj,...) standardGeneric("fits"))
 setMethod("fits",'run_model',function(obj,...){                               #summaries fit measures for Bayesian models, takes arguments of one or more model outputs

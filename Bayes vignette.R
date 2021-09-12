@@ -69,7 +69,7 @@ ggplot(mix,aes(x=mass,y=length,color=paste(species,color)))+
   facet_grid(cols=vars(site))
 
 set.seed(1)
-source('hbm.R')
+
 
 o1=hbm(mix,length~mass)
 
@@ -92,4 +92,6 @@ summary(o3)
 mix$sex=as.numeric(as.factor(mix$sex))
 model='mass~length+sex
 length~sex'
-b=bsem(data,model)
+source('hbm.R')
+b=bsem(mix,model)
+b
