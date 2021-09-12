@@ -1,4 +1,4 @@
-cat('\nLast updated 2021/09/10 @10:23am\n')
+cat('\nLast updated 2021/09/12\n')
 library(stringr);library(jagsUI);library(ggplot2)
 library(reshape2);library(cowplot)
 #################################################################################
@@ -31,7 +31,7 @@ hbm_data=setClass('hbm_object',slots=list(                                      
   'data'        ='data.frame',
   'source_model'='character'),
   contains=c('model_data','run_model'))
-semb_data=setClass('semb_object',slots=list(                                    #class for B
+bsem_data=setClass('bsem_object',slots=list(                                    #class for B
   'name'        ='character',
   'dir'         ='character',
   'data'        ='data.frame',
@@ -135,11 +135,20 @@ response=function(hbm){
          'dgamma'=str_interp('${hbm@dist}(sigma,sigma/exp(mu[i]))'),
          'dbern'=str_interp('${hbm@dist}(ilogit(mu[i]))')))}
 #################################################################################
-ilen=function(data,v,x=1){                                                      #returns counts of factors in each level of hierarchy, take argument of data.frame, vector of col names
+clen=function(data,v,x=1){                                                      #returns counts of factors in each level of hierarchy, take argument of data.frame, vector of col names
   o=list()                                                                         #define var
   d=as.numeric(as.factor(data[,v[x]]))                                          #characters to numbers
   if(x==length(v)){return(length(unique(d)))}                                   #return on final value
-  else{for(i in unique(d)){o[[i]]=(ilen(data[d==i,],v,x+1))};return(o)}}          #otherwise repeat for sub-hierarchies 
+  else{for(i in unique(d)){o[[i]]=(clen(data[d==i,],v,x+1))};return(o)}}          #otherwise repeat for sub-hierarchies 
+#################################################################################
+mlen=function(maxes,lens,index=c(),x=1){
+  o=c()
+  if(x==length(maxes)){
+    for(i in index){lens=tryCatch(lens[[i]],error=\(x)0)}
+    return(lens)}
+  else{for(i in 1:maxes[x]){
+    o=c(o,mlen(maxes,lens,c(index,i),x+1))}}
+  return(o)}        #otherwise repeat for sub-hierarchies 
 #################################################################################
 flip=function(x){                                                               #takes a named vector and returns vector of names, now named for the values they represent in original vector
   if(is.list(x)){x=x[[1]]}                                                      #edge use case
@@ -152,10 +161,10 @@ items=function(data,v){                                                     #rec
   d=setNames(d,gsub('^.+_<>_','',data[,v]))                                                     #rename based on original values
   return(d)}                                                           ###         #otherwise repeat for sub-hierarchies
 #################################################################################
-semb=function(data,model,...){                                                   #write and compute Bayesian structural equation models, takes arguments of model string, data, directory to save to
-  output=new('semb_object')
+bsem=function(data,model,...){                                                   #write and compute Bayesian structural equation models, takes arguments of model string, data, directory to save to
+  output=new('bsem_object')
   param=list(...)
-  defaults=list('name'        ='unnamed_semb',
+  defaults=list('name'        ='unnamed_bsem',
                 'dir'         ='.',
                 'model_dir'   ='.',
                 'n.adapt'     =2000,
@@ -338,7 +347,7 @@ setMethod("format_data","hbm_object",function(hbm){
     for(i in (nc/2+1):nc){
       cols[,i]=as.numeric(as.factor(cols[,i]))
       cols=cols[order(cols[,i]),]
-      counts=unlist(ilen(hbm@data,hbm@vars[[2]][-1][1:(i-nc/2)]))
+      counts=unlist(clen(hbm@data,hbm@vars[[2]][-1][1:(i-nc/2)]))
       rename=expand(counts)|>setNames(unique(cols[,i]))
       cols=cbind(cols,sapply(cols[,i],\(x)rename[x]))
     }
@@ -351,9 +360,14 @@ setMethod("format_data","hbm_object",function(hbm){
       filter=setNames(filter[,3],as.character(filter[,1]))
       hbm@model_data[[n]]=sapply(hbm@data[,n],\(x)filter[as.character(x)])}
     for(n in 2:length(hbm@vars[[2]])){
-      convert[[hbm@vars[[2]][n]]]=flip(hbm@model_data[[hbm@vars[[2]][n]]])
-      counts=ilen(hbm@data,hbm@vars[[2]][2:n])
-      hbm@model_data[[paste('N',hbm@vars[[2]][n],sep='')]]=unlist(counts)}}
+      convert[[hbm@vars[[2]][n]]]=flip(hbm@model_data[[hbm@vars[[2]][n]]])}
+      
+    maxes=c()
+    for(i in 1:length(hbm@vars[[2]][-1])){
+        lens=clen(hbm@data,hbm@vars[[2]][-1][1:i])
+        maxes=c(maxes,max(unlist(lens)))
+        hbm@model_data[[paste('N',hbm@vars[[2]][-1][i],sep='')]]=unlist(mlen(maxes,lens))}}
+
   hbm@scales=list()
   
   for(m in hbm@variables){
@@ -380,7 +394,9 @@ setMethod("format_model","hbm_object",function(hbm){
   A=name[regexec('[aA]lpha',name)>0]
   B=name[regexec('beta',name)>0]
   l=list()
-  for(n in vars){l[[n]]=(hbm@model_data[paste('N',n,sep='')])[[1]]}
+  for(n in vars){
+    l[[n]]=(hbm@model_data[paste('N',n,sep='')])[[1]]
+    l[[n]]=l[[n]][l[[n]]>0]}
   
   if(length(vars)>0){
     left=setNames(as.data.frame(matrix(nrow=sum(l[[length(l)]]),ncol=length(l))),vars)}
@@ -396,7 +412,7 @@ setMethod("format_model","hbm_object",function(hbm){
       left[,i][left[,i]==0]=expand(l[[i]])}
     for(i in 1:(length(left)-1)){
       first=unique(left[1:i])
-      for(q in 1:(length(left)-i)){first=cbind(first,rep('all',length(first)))}
+      for(q in 1:(length(left)-i)){first=cbind(first,rep('all',nrow(first)))}
       left=rbind(setNames(first,names(left)),left)}
     left=rbind(setNames(rep('all',length(left)),names(left)),unique(left))
     for(i in names(left)){
@@ -418,6 +434,9 @@ setMethod("format_model","hbm_object",function(hbm){
     for(b in betas){
       Bs=B[regexpr(b,B)>0]
       for(i in 1:ngroup){
+        bc=match(b,betas)
+        bl=length(betas)*ngroup
+        progress((i+(bc-1)*bl)/bl,50)
         col=names(left)[regexpr('all',left[i,])<0]
         if(length(col)>0){
           lup=tryCatch(left[i,col[length(col)-1]],error=function(e) return('all'))
@@ -448,14 +467,16 @@ setMethod("format_model","hbm_object",function(hbm){
           else{
             if(length(l==1)){out=rbind(out,cbind(setNames(as.data.frame(rep(left[i,],nrow(right))),names(left)),right))}
             else{out=rbind(out,right)}}
-          medians[['all']]=right$response[right$upper=='beta_all']}}
-      progress(match(b,betas)/length(betas),50)}
+          medians[['all']]=right$response[right$upper=='beta_all']}}}
     counts=list();medians=list()
     alphas=A[regexpr(paste(paste('_',names(left),'$',sep=''),collapse='|'),A)<0]
     cat('\nformating intercepts\n')
     for(a in alphas){
       Bs=A[regexpr(a,A)>0]
       for(i in 1:ngroup){
+        bc=match(a,alphas)
+        bl=length(alphas)*ngroup
+        progress((i+(bc-1)*bl)/bl,50)
         col=names(left)[regexpr('all',left[i,])<0]
         if(length(col)>0){
           lup=tryCatch(left[i,col[length(col)-1]],error=function(e) return('all'))
@@ -484,8 +505,7 @@ setMethod("format_model","hbm_object",function(hbm){
           else{
             if(length(l==1)){out=rbind(out,cbind(setNames(as.data.frame(rep(left[i,],nrow(right))),names(left)),right))}
             else{out=rbind(out,right)}}
-          medians[['all']]=right$response[right$upper=='alpha_all']}}
-      progress(match(a,alphas)/length(alphas),50)}}
+          medians[['all']]=right$response[right$upper=='alpha_all']}}}}
   out=na.omit(out)#[c(T,rep(F,99)),] #culling
   out$response[out$lower %in% A]=out$response[out$lower %in% A]*as.numeric(hbm@scales[1])
   cat('\nbacktransforming data\n')
@@ -493,18 +513,19 @@ setMethod("format_model","hbm_object",function(hbm){
     out$response[regexpr(sb,out$lower)>0]=out$response[regexpr(sb,out$lower)>0]*as.numeric(hbm@scales[1])/as.numeric(hbm@scales[sb])
     progress(match(sb,names(hbm@scales[-1]))/length(names(hbm@scales[-1])),50)}
   hbm@output=out
-  count=0
-  cat('\nfixing hierarchy names\n')
-  filterout=pastedown(hbm@output,hbm@vars[[2]][-1])
-  filter=cbind(hbm@filter,pastedown(hbm@filter[(-2*length(hbm@vars[[2]][-1])):0],hbm@vars[[2]][-1]))
-  for(i in unique(names(hbm@filter))){
-    filterout[,i][hbm@output[,i]=='all']='all'
-    group=unique(filter[,regexpr(i,names(filter))>0])
-    group_filter=setNames(c('all',as.character(group[,1])),c('all',as.character(group[,4])))
-    hbm@output[,i]=sapply(filterout[,i],\(x)group_filter[as.character(x)])
-    hbm@output[,i]=gsub('^.+_<>_','',hbm@output[,i])
-    count=count+1
-    progress(count/length(unique(names(filter))),50)}
+  if(length(names(hbm@filter))>0){
+    count=0
+    cat('\nfixing hierarchy names\n')
+    filterout=pastedown(hbm@output,hbm@vars[[2]][-1])
+    filter=cbind(hbm@filter,pastedown(hbm@filter[(-2*length(hbm@vars[[2]][-1])):0],hbm@vars[[2]][-1]))
+    for(i in unique(names(hbm@filter))){
+      filterout[,i][hbm@output[,i]=='all']='all'
+      group=unique(filter[,regexpr(i,names(filter))>0])
+      group_filter=setNames(c('all',as.character(group[,1])),c('all',as.character(group[,4])))
+      hbm@output[,i]=sapply(filterout[,i],\(x)group_filter[as.character(x)])
+      hbm@output[,i]=gsub('^.+_<>_','',hbm@output[,i])
+      count=count+1
+      progress(count/length(unique(names(filter))),50)}}
   return(hbm)})
 #################################################################################
 setGeneric("run_model", function(hbm) standardGeneric("run_model"))
@@ -634,10 +655,24 @@ setMethod("write_model","hbm_object",function(hbm){
   middle=c()
   
   if(length(hbm@vars[[2]])>1){
+    dimension=c()
     for(q in 1:(length(hbm@vars[[2]])-1)){
       groupcode=''
-      if(q>1){groupcode=paste(paste("[",letters[1:(q-1)],"]",sep=""),collapse="")}
+      if(q==2){groupcode='[a]'}
+      if(q>2){
+        groups=c(hbm@vars[[2]][3:q])
+        grouping=list()
+        for(g in length(groups):1){
+          grouping[[g]]=paste0('max(N',groups[length(groups):g],')')
+        }
+        groupcode=c(letters[q-1])
+        dims=paste0('(',letters[1:(q-2)],'-1)')
+        for(d in 1:length(dims)){
+          groupcode=c(groupcode,paste(c(dims[d],grouping[[d]]),collapse='*'))}
+        groupcode=paste0('[',paste(groupcode,collapse='+'),']')}
+      
       loop=str_interp('for(${letters[q]} in 1:N${hbm@vars[[2]][-1][q]}${groupcode}){')
+      dimension=''
       types=c()
       for(r in rv){
         mu=0

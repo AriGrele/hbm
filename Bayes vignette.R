@@ -39,7 +39,8 @@ mix=mixed(200,list('mass'=list(runif,10,20),
                    'length'=list('mass',1,2),
                    'site'=list(LETTERS[1:5],1),
                    'species'=list(c('s1','s2','s3'),1),
-                   'sex'=list(c('M','F'),1)))[[1]]
+                   'sex'=list(c('M','F'),1),
+                   'color'=list(c('red','blue','yellow'),1)))[[1]]
 
 data=data.frame(mass=mix$mass)
 data$slope=1:4
@@ -62,7 +63,7 @@ cowplot::plot_grid(
   ggplot(data,aes(x=survival,color=site))+geom_density(bw=.01),ncol=3)
 mix$species[mix$site=='A']=c('fish','moose')
 mix$species[mix$site=='B']=c('s1','s4')
-ggplot(mix,aes(x=mass,y=length,color=species))+
+ggplot(mix,aes(x=mass,y=length,color=paste(species,color)))+
   geom_point()+
   geom_smooth(method=lm)+
   facet_grid(cols=vars(site))
@@ -70,8 +71,9 @@ ggplot(mix,aes(x=mass,y=length,color=species))+
 set.seed(1)
 source('hbm.R')
 
-o1=hbm(mix,length~mass+(site+species+sex),source_model='test')
-ocean(o1,'mass','species')
+o1=hbm(mix,length~mass)
+
+bass(o1,'mass','site')
 resid(o1)
 summary(o1)
 fits(o1)
@@ -86,8 +88,8 @@ o3=hbm(data,survival~mass+(site),dist='dbern')
 resid(o3)
 o3fits(o3)
 summary(o3)
-# 
-# data$sex=as.numeric(data$sex)
-# model='mass~length+sex
-# length~sex'
-# b=semb(data,model)
+
+mix$sex=as.numeric(as.factor(mix$sex))
+model='mass~length+sex
+length~sex'
+b=bsem(data,model)
