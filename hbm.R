@@ -161,17 +161,20 @@ items=function(data,v){                                                     #rec
   d=setNames(d,gsub('^.+_<>_','',data[,v]))                                                     #rename based on original values
   return(d)}                                                           ###         #otherwise repeat for sub-hierarchies
 #################################################################################
-bsem=function(data,model,...){                                                   #write and compute Bayesian structural equation models, takes arguments of model string, data, directory to save to
+bsem=function(model,data,...){                                                   #write and compute Bayesian structural equation models, takes arguments of model string, data, directory to save to
   output=new('bsem_object')
   param=list(...)
-  defaults=list('name'        ='unnamed_bsem',
+  defaults=list('name'        ='unnamed_hbm',
+                'model_name'  ='unnamed_model',
                 'dir'         ='.',
+                'dist'        ='dnorm',
                 'model_dir'   ='.',
                 'n.adapt'     =2000,
                 'n.burnin'    =1000,
                 'n.iter'      =10000,
-                'n.thin'      =5,  
-                'n.chains'    =4)
+                'n.chains'    =4,
+                'source_model'='',
+                'format'      ='difference')
   
   default=c(list('data' =data,
                  'input'=match.call(expand.dots=T)),
@@ -193,18 +196,7 @@ bsem=function(data,model,...){                                                  
                                      setNames(list(output@data[,o]),
                                               paste('y.',o,sep='')))}
   
-  inits=function(){list(sigma=rep(1,length(lefts)))}  
-  parameters=c(parameters,c(LETTERS,letters)[1:length(lefts)])
-  output@jags_model=tryCatch(jags(output@model_data,
-                                  inits,
-                                  parameters,
-                                  paste0(output@dir,'/',output@name,'.jags'),
-                                  n.chains=output@n.chains,
-                                  n.thin=output@n.thin,
-                                  n.iter=output@n.iter,
-                                  n.burnin=output@n.burnin,
-                                  parallel=F),
-                             error=function(e){print(e);return(NULL)})
+  output=tryCatch(run_model(output),error=function(e){print(e);return(output)})
   
   cat('\nMaking trace plots\n')
   tryCatch(traces(output,0),error=function(e){print(e)})
@@ -256,18 +248,19 @@ setMethod('write_bsem','model_data',function(hbm){
   for(l in 1:length(lefts)){
     base=gsub('\\[i\\]','',lefts[l])
     new=c(new,paste('y.',
-                    base,'.fit=sum(pow(y.',base,'.res[],2)/tau[',l,'])',sep=''),
+                    base,'.fit=sum(pow(y.',base,'.res[],2))',sep=''),
           paste('y.',
-                base,'.sfit=sum(pow(y.',base,'.sres[],2)/tau[',l,'])',sep=''))
+                base,'.sfit=sum(pow(y.',base,'.sres[],2))',sep=''))
     parameters=c(parameters,
                  paste('y.',base,'.sfit',sep=''),
                  paste('y.',base,'.fit',sep=''))}
   tail=paste(new,collapse='\n')
-  formula=paste(upper,middle,lower,tail,bottom,sep='\n')
+  hbm@save=parameters
+  hbm@save=c(hbm@save,c(LETTERS,letters)[1:length(lefts)])
+  hbm@formula=paste(upper,middle,lower,tail,bottom,sep='\n')
   
-  sink(paste0(output@dir,'/',output@name,'.jags'))
-  cat(formula,fill=T)
-  sink()
+  if(hbm@source_model==''){
+    writeLines(hbm@formula,paste(hbm@model_dir,'/',hbm@model_name,'.txt',sep=''))}
   return(hbm)
 })
 
@@ -439,12 +432,13 @@ setMethod("format_model","hbm_object",function(hbm){
   ngroup=ifelse(nrow(left)>0,nrow(left),1)
   if(TRUE){
     cat('\nformating slopes\n')
+    bc=0
+    bl=length(betas)*ngroup
     for(b in betas){
       Bs=B[regexpr(b,B)>0]
       for(i in 1:ngroup){
-        bc=match(b,betas)
-        bl=length(betas)*ngroup
-        progress((i+(bc-1)*bl)/bl,50)
+        bc=bc+1
+        progress(bc/bl,50)
         col=names(left)[regexpr('all',left[i,])<0]
         if(length(col)>0){
           lup=tryCatch(left[i,col[length(col)-1]],error=function(e) return('all'))
@@ -479,12 +473,13 @@ setMethod("format_model","hbm_object",function(hbm){
     counts=list();medians=list()
     alphas=A[regexpr(paste(paste('_',names(left),'$',sep=''),collapse='|'),A)<0]
     cat('\nformating intercepts\n')
+    bc=0
+    bl=length(alphas)*ngroup
     for(a in alphas){
       Bs=A[regexpr(a,A)>0]
       for(i in 1:ngroup){
-        bc=match(a,alphas)
-        bl=length(alphas)*ngroup
-        progress((i+(bc-1)*bl)/bl,50)
+        bc=bc+1
+        progress(bc/bl,50)
         col=names(left)[regexpr('all',left[i,])<0]
         if(length(col)>0){
           lup=tryCatch(left[i,col[length(col)-1]],error=function(e) return('all'))
@@ -553,6 +548,22 @@ setMethod("run_model","hbm_object",function(hbm){
                               parameters.to.save=hbm@save,
                               verbose=T,
                               DIC=F)
+  return(hbm)})
+setMethod("run_model","bsem_object",function(hbm){
+  cat('from',paste(hbm@model_dir,'/',
+                   hbm@model_name,
+                   '.txt',sep=''))
+  hbm@jags_model=jagsUI::jags(data=hbm@model_data,
+                              n.adapt=hbm@n.adapt,
+                              n.burnin=hbm@n.burnin,
+                              n.iter=hbm@n.iter,
+                              n.chains=hbm@n.chains,
+                              modules="glm",
+                              model.file=paste(hbm@model_dir,'/',
+                                               hbm@model_name,
+                                               '.txt',sep=''),
+                              parameters.to.save=hbm@save,
+                              verbose=T)
   return(hbm)})
 #################################################################################
 setGeneric("write_model", function(hbm) standardGeneric("write_model"))
@@ -741,6 +752,8 @@ hbm=function(data,model,...){
       cat('Invalid input for variable "',d,'"\n',sep='')
       return()}}
   
+  if(output@model_name=='unnamed_model'){output@model_name=output@name}
+  
   if(!(output@dist%in%c('dnorm','dgamma','dbern'))){
     cat('Distribution "',output@dist,'" not yet implemented',sep='')
     return()}
@@ -828,6 +841,17 @@ setMethod("ocean","hbm_object",function(hbm,vars,fill='lower',s=1,interaction='n
       else{if(v$var[2]=='upper'){out[[g]]=wave(h,v,s)}
         else{out[[g]]=wave2(h,v,s)}}}}
   return(unlist(out, recursive = FALSE))})
+setMethod("ocean","data.frame",function(hbm,vars,fill='lower',s=1,interaction='none'){             #create groups of waveplots, takes arguments of model output, focal groups, fill groups, scale
+  data=hbm
+  out=list()
+  for(g in vars){
+    h=data[regexpr(g,data$lower)>0,]
+    v=hbmvar(h,c(fill))
+    if(interaction!='none'){out[[g]]=wave3(h,v,s,interaction)}
+    else{if(length(v$var)==1){out[[g]]=wave(h,v,s)}
+      else{if(v$var[2]=='upper'){out[[g]]=wave(h,v,s)}
+        else{out[[g]]=wave2(h,v,s)}}}}
+  return(unlist(out, recursive = FALSE))})
 #################################################################################
 dotplot=function(data,var,s){                                                   #create single dotplot, takes argument of model output, focal variables, scale
   lowers=names(data)[!(names(data)%in%c(var$var,           #only look at overall effect in lower levels
@@ -905,6 +929,17 @@ dotplot3=function(data,var,s,int){                                              
 setGeneric("polka", function(hbm,...) standardGeneric("polka"))
 setMethod("polka","hbm_object",function(hbm,vars,fill='lower',s=1,interaction='none'){             #create groups of dotplots, takes arguments of model output, focal groups, fill group, scale
   data=hbm@output
+  out=list()
+  for(g in vars){
+    h=data[regexpr(g,data$lower)>0,]
+    v=hbmvar(h,c(fill))
+    if(interaction!='none'){out[[g]]=dotplot3(h,v,s,interaction)}
+    else{if(length(v$var)==1){out[[g]]=dotplot(h,v,s)}
+      else{if(v$var[2]=='upper'){out[[g]]=dotplot(h,v,s)}
+        else{out[[g]]=dotplot2(h,v,s)}}}}
+  return(out)})
+setMethod("polka","data.frame",function(hbm,vars,fill='lower',s=1,interaction='none'){             #create groups of dotplots, takes arguments of model output, focal groups, fill group, scale
+  data=hbm
   out=list()
   for(g in vars){
     h=data[regexpr(g,data$lower)>0,]
@@ -1031,6 +1066,17 @@ cello3=function(data,var,s,label='none',lsize=1,int){                           
 setGeneric("bass", function(hbm,...) standardGeneric("bass"))
 setMethod("bass","hbm_object",function(hbm,groups,fill='lower',s=1,label='none',lsize=1,interaction='none'){               #create groups cello plots, takes arguments of model output, focal groups, fill group, scale
   data=hbm@output
+  out=list()
+  for(g in groups){
+    h=data[regexpr(g,data$lower)>0,]
+    v=hbmvar(h,c(fill))
+    if(interaction!='none'){out[[g]]=cello3(h,v,s,label=label,lsize=lsize,int=interaction)}
+    else{if(length(v$var)==1){out[[g]]=cello(h,v,s,label=label,lsize=lsize)}
+      else{if(v$var[2]=='upper'){out[[g]]=cello(h,v,s,label=label,lsize=lsize)}
+        else{out[[g]]=cello2(h,v,s)}}}}
+  return(out)})
+setMethod("bass","data.frame",function(hbm,groups,fill='lower',s=1,label='none',lsize=1,interaction='none'){               #create groups cello plots, takes arguments of model output, focal groups, fill group, scale
+  data=hbm
   out=list()
   for(g in groups){
     h=data[regexpr(g,data$lower)>0,]

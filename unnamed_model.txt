@@ -1,0 +1,29 @@
+model {
+for (i in 1:N){
+mass[i] = A[1] + A[2]*y.length[i] + A[3]*y.sex[i]
+length[i] = B[1] + B[2]*y.sex[i]
+}
+for (i in 1:N){
+y.mass[i]~dnorm(mass[i],tau[1])
+y.mass.sim[i]~dnorm(mass[i],tau[1])
+y.mass.res[i]=y.mass[i]-mass[i]
+y.mass.sres[i]=y.mass.sim[i]-mass[i]
+y.length[i]~dnorm(length[i],tau[2])
+y.length.sim[i]~dnorm(length[i],tau[2])
+y.length.res[i]=y.length[i]-length[i]
+y.length.sres[i]=y.length.sim[i]-length[i]
+}
+A[1] ~ dnorm(0.0,0.01)
+A[2] ~ dnorm(0.0,0.01)
+A[3] ~ dnorm(0.0,0.01)
+B[1] ~ dnorm(0.0,0.01)
+B[2] ~ dnorm(0.0,0.01)
+y.mass.fit=sum(pow(y.mass.res[],2)/tau[1])
+y.mass.sfit=sum(pow(y.mass.sres[],2)/tau[1])
+y.length.fit=sum(pow(y.length.res[],2)/tau[2])
+y.length.sfit=sum(pow(y.length.sres[],2)/tau[2])
+for (j in 1:2){
+sigma[j] ~ dgamma(1,1)
+tau[j] <- pow(sigma[j], -2)
+}
+}
