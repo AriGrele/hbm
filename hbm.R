@@ -830,7 +830,7 @@ wave3=function(data,var,s,int){                                                 
   return(list(out))}
 
 setGeneric("ocean", function(hbm,...) standardGeneric("ocean"))
-setMethod("ocean","hbm_object",function(hbm,vars,fill='lower',s=1,interaction='none'){             #create groups of waveplots, takes arguments of model output, focal groups, fill groups, scale
+setMethod("ocean","hbm_object",function(hbm,vars='',fill='lower',s=1,interaction='none'){             #create groups of waveplots, takes arguments of model output, focal groups, fill groups, scale
   data=hbm@output
   out=list()
   for(g in vars){
@@ -841,7 +841,7 @@ setMethod("ocean","hbm_object",function(hbm,vars,fill='lower',s=1,interaction='n
       else{if(v$var[2]=='upper'){out[[g]]=wave(h,v,s)}
         else{out[[g]]=wave2(h,v,s)}}}}
   return(unlist(out, recursive = FALSE))})
-setMethod("ocean","data.frame",function(hbm,vars,fill='lower',s=1,interaction='none'){             #create groups of waveplots, takes arguments of model output, focal groups, fill groups, scale
+setMethod("ocean","data.frame",function(hbm,vars='',fill='lower',s=1,interaction='none'){             #create groups of waveplots, takes arguments of model output, focal groups, fill groups, scale
   data=hbm
   out=list()
   for(g in vars){
@@ -927,7 +927,7 @@ dotplot3=function(data,var,s,int){                                              
   return(g)}
 
 setGeneric("polka", function(hbm,...) standardGeneric("polka"))
-setMethod("polka","hbm_object",function(hbm,vars,fill='lower',s=1,interaction='none'){             #create groups of dotplots, takes arguments of model output, focal groups, fill group, scale
+setMethod("polka","hbm_object",function(hbm,vars='',fill='lower',s=1,interaction='none'){             #create groups of dotplots, takes arguments of model output, focal groups, fill group, scale
   data=hbm@output
   out=list()
   for(g in vars){
@@ -938,7 +938,7 @@ setMethod("polka","hbm_object",function(hbm,vars,fill='lower',s=1,interaction='n
       else{if(v$var[2]=='upper'){out[[g]]=dotplot(h,v,s)}
         else{out[[g]]=dotplot2(h,v,s)}}}}
   return(out)})
-setMethod("polka","data.frame",function(hbm,vars,fill='lower',s=1,interaction='none'){             #create groups of dotplots, takes arguments of model output, focal groups, fill group, scale
+setMethod("polka","data.frame",function(hbm,vars='',fill='lower',s=1,interaction='none'){             #create groups of dotplots, takes arguments of model output, focal groups, fill group, scale
   data=hbm
   out=list()
   for(g in vars){
@@ -1064,7 +1064,7 @@ cello3=function(data,var,s,label='none',lsize=1,int){                           
   return(g)}
 
 setGeneric("bass", function(hbm,...) standardGeneric("bass"))
-setMethod("bass","hbm_object",function(hbm,groups,fill='lower',s=1,label='none',lsize=1,interaction='none'){               #create groups cello plots, takes arguments of model output, focal groups, fill group, scale
+setMethod("bass","hbm_object",function(hbm,groups='',fill='lower',s=1,label='none',lsize=1,interaction='none'){               #create groups cello plots, takes arguments of model output, focal groups, fill group, scale
   data=hbm@output
   out=list()
   for(g in groups){
@@ -1075,7 +1075,7 @@ setMethod("bass","hbm_object",function(hbm,groups,fill='lower',s=1,label='none',
       else{if(v$var[2]=='upper'){out[[g]]=cello(h,v,s,label=label,lsize=lsize)}
         else{out[[g]]=cello2(h,v,s)}}}}
   return(out)})
-setMethod("bass","data.frame",function(hbm,groups,fill='lower',s=1,label='none',lsize=1,interaction='none'){               #create groups cello plots, takes arguments of model output, focal groups, fill group, scale
+setMethod("bass","data.frame",function(hbm,groups='',fill='lower',s=1,label='none',lsize=1,interaction='none'){               #create groups cello plots, takes arguments of model output, focal groups, fill group, scale
   data=hbm
   out=list()
   for(g in groups){
