@@ -1,7 +1,7 @@
 cat('\nLast updated 2021/09/12\n')
 library(stringr);library(jagsUI);library(ggplot2)
 library(reshape2);library(cowplot)
-#################################################################################
+ 
 model_data=setClass('model_data',slots=list(                                    #class for model input to Jags
   'input'     ='call',
   'dist'      ='character',
@@ -31,54 +31,54 @@ hbm_data=setClass('hbm_object',slots=list(                                      
   'data'        ='data.frame',
   'source_model'='character'),
   contains=c('model_data','run_model'))
-bsem_data=setClass('bsem_object',slots=list(                                    #class for B
+bsem_data=setClass('bsem_object',slots=list(                                    #class for BSEMs
   'name'        ='character',
   'dir'         ='character',
   'data'        ='data.frame',
   'source_model'='character'),
   contains=c('model_data','run_model'))
-#################################################################################
+ 
 pd=function(x){                                                                 #calculates percent of vector with same sign as vector median
   side=sign(median(x))                                                          #sign of median
   return(sum(side*x>0)/length(x))}                                              #return probability of direction
-#################################################################################
-setMethod("summary","hbm_object",function(object){                                 #creates summary aggregation of model output
-  l=1+length(object@vars[[2]])
-  p=list()
-  for(i in 1:l){p[[i]]=object@output[,i]}
-  a=with(object@output,aggregate(response,p,pd))
-  a$mean=with(object@output,aggregate(response,p,mean))$x
-  a$CIl=with(object@output,aggregate(response,p,function(x) quantile(x,0.025)))$x
-  a$CIu=with(object@output,aggregate(response,p,function(x) quantile(x,0.975)))$x
-  a=setNames(a,c(names(object@output)[-c(length(object@output))],
+ 
+setMethod("summary","hbm_object",function(object){                              #creates summary aggregation of HBM output           
+  p=as.list(object@output[-ncol(object@output)])                                #create list for each column in outpur besides response to slicing of aggregation 
+  a=with(object@output,aggregate(response,p,pd))                                #pd aggregation
+  a$mean=with(object@output,aggregate(response,p,mean))$x                       #mean aggregation
+  a$CIl=with(object@output,aggregate(response,p,\(x)quantile(x,0.025)))$x       #lower CI aggregation
+  a$CIu=with(object@output,aggregate(response,p,\(x)quantile(x,0.975)))$x       #upper CI aggregation
+  a=setNames(a,c(names(object@output)[-c(length(object@output))],               
                  'PD','mean','CI_lower','CI_upper'))
   return(a)})
-#################################################################################
-setGeneric("traces", function(hbm,cull) standardGeneric("traces"))
-setMethod("traces","run_model",function(hbm,cull=0){                           #create traceplots from hbm output, takes arguments of model, directory to save to, amount to cull from output
-  samples=hbm@jags_model$samples                                                #select samples and columns
+ 
+setGeneric("traces", function(hbm,cull) standardGeneric("traces"))              #create traceplots from hbm output, takes arguments of model, directory to save to, amount to cull from output
+setMethod("traces","run_model",function(hbm,cull=0){                           
+  samples=hbm@jags_model$samples                                                #select samples and columns for each plot
   cols=colnames(hbm@jags_model$samples[[1]])
   allucols=unique(gsub('\\[.+]$','',cols));ucols=allucols[1]                    #correct colnames
-  for(u in allucols){                                                           #for each col:
+  for(u in allucols){                                                           #To find unique terms within columns, for each col:
     stop=0
     for(q in ucols){if(regexpr(u,q)>0|regexpr(q,u)>0){stop=1}}                  #   stop when non-unique column reached
-    if(stop==0){ucols=c(ucols,u)}}                                              #   append col after stop
+    if(stop==0){ucols=c(ucols,u)}}                                              #   append col otherwise
   
   nchains=hbm@jags_model$mcmc.info$n.chains                                     #extract mcmc info from model
   xmax=hbm@jags_model$mcmc.info$n.samples/nchains
-  plots=list();k=0                                                              #empty vars for output
+  plots=list();k=0                                                              
   for(u in ucols){                                                              #for each column:
     out=list()
     for(i in cols[regexpr(u,cols)>0]){                                          
       k=k+1
-      e=stringr::str_extract_all(i,'(\\[\\d+,\\d+\\])|(\\[\\d+\\])')
-      pos=eval(parse(text=gsub('\\]','\\)',gsub('\\[','c\\(',e))))
-      rhat=ifelse(length(pos)==1,hbm@jags_model$Rhat[[gsub('\\[.+]$','',i)]][pos[1]],
-                  ifelse(length(pos)==0,hbm@jags_model$Rhat[[gsub('\\[.+]$','',i)]],
+      e=stringr::str_extract_all(i,'(\\[\\d+,\\d+\\])|(\\[\\d+\\])')            #select names with [numeral] to identify sublevels
+      pos=eval(parse(text=gsub('\\]','\\)',gsub('\\[','c\\(',e))))              #extract level number
+      rhat=ifelse(length(pos)==1,
+                  hbm@jags_model$Rhat[[gsub('\\[.+]$','',i)]][pos[1]],          #rhat when single level
+                  ifelse(length(pos)==0,                        
+                         hbm@jags_model$Rhat[[gsub('\\[.+]$','',i)]],           #rhat when zero or multiple levels
                          hbm@jags_model$Rhat[[gsub('\\[.+]$','',i)]][pos[1],pos[2]]))
-      m=suppressMessages(reshape2::melt(as.data.frame(
+      m=suppressMessages(reshape2::melt(as.data.frame(                          #invoke coda to extract mcmc chains
         coda::as.array.mcmc.list(samples[,i])))[c(T,rep(F,cull)),])
-      out[[i]]=ggplot(m)+
+      out[[i]]=ggplot(m)+                                                       #append line plot to output vector
         geom_line(aes(x=rep(1:xmax,nchains)[c(T,rep(F,cull))],
                       y=value,color=variable),alpha=1/nchains*2,size=1)+
         theme_classic()+
@@ -90,81 +90,82 @@ setMethod("traces","run_model",function(hbm,cull=0){                           #
         xlab('')+ylab('')+
         scale_x_continuous(expand = c(0,0))+
         scale_y_continuous(expand=c(0,0))
-      if(rhat<1.1){out[[i]]=out[[i]]+
+      if(rhat<1.1){out[[i]]=out[[i]]+                                           #identify convergence failure with plot color
         scale_color_manual(values=pals::ocean.ice(nchains))}
       else{out[[i]]=out[[i]]+
         scale_color_manual(values=pals::ocean.matter(nchains))}
       progress(k/length(cols),50)}
-    n=floor(sqrt(length(out)))
-    if(mean(regexpr('traces',list.dirs(hbm@dir))<0)==1){
+    n=floor(sqrt(length(out)))                                                  #find number of plots to decide grid size
+    if(mean(regexpr('traces',list.dirs(hbm@dir))<0)==1){                        #create new folder when no recognized output folder
       suppressMessages(dir.create(paste0(hbm@dir,'/traces/')))}
     png(paste0(hbm@dir,'/traces/',hbm@name,u,'.png'),1000*n,1000*length(out)/n)
     do.call(gridExtra::grid.arrange,c(out,ncol=n))
     dev.off()}})
-#################################################################################
+ 
 progress=function(percent,len,char='='){                                        #print progress bar to console, takes arguments of percent progress, nchar to print at 100%, character to form the bar from
   k=round(percent*len)                                                          #nchar to print at current percent
   cat('|',                                                                      #print
       rep(char,k),
       rep(' ',len-k),'| ',percent*100,'%                  \r',sep='')
   if(percent==1){cat('\n')}}                                                    #new line at 100%
-#################################################################################
-expand=function(x){o=c();for(i in x){o=c(o,1:i)};return(o)}
-#################################################################################
+ 
+expand=function(x){o=c();for(i in x){o=c(o,1:i)};return(o)}                     #takes vectors, return 1:N for each value in vector
+ 
 gap=function(l,u,count){                                                        #returns missing values, takes argument of lower range vector, upper value, count
   o=c(0);n=u[1];i=1
   for(q in 2:length(l)){
     if(l[q]==0&(l[q-1]==count[i]|l[q-1]==0)){i=i+1;n=u[i];o=c(o,0)}
     else{o=c(o,n)}}
   return(o)}
-#################################################################################
+ 
 repframe=function(d,n){                                                         #acts like rep() for data.frames, takes arguments of data.frame, count
   out=setNames(as.data.frame(matrix(nrow=n,ncol=length(d))),names(d))
   for(i in 1:length(d)){out[,i]=rep(d[,i],n)}
   return(out)}
-#################################################################################
+ 
 chunk=function(ar,len){                                                         #breaks array into equal chunks, takes arguments of array, chunk length
   o=list();c=0                                                                  #define vars
   for(i in len*0:(length(ar)/len-1)){i=i+1;c=c+1;o[[c]]=ar[(i):(i+len-1)]}      #split into groups of set length, append to list
   return(o)}
-#################################################################################
-response=function(hbm){
-  if(!(hbm@dist%in%c('dnorm','dgamma','dbern'))){return('Invalid dist')}
+ 
+setGeneric("response", function(hbm,cull) standardGeneric("response"))          #create traceplots from hbm output, takes arguments of model, directory to save to, amount to cull from output
+setMethod("response","model_data",function(hbm){                                #To create correct JAGs code based on distribution, returns code string based on dist info
+  if(!(hbm@dist%in%c('dnorm','dgamma','dbern'))){return('Invalid dist')}        #error code when dist not programmed 
   return(switch(hbm@dist,
          'dnorm'=str_interp('${hbm@dist}(mu[i],tau)'),
          'dgamma'=str_interp('${hbm@dist}(sigma,sigma/exp(mu[i]))'),
-         'dbern'=str_interp('${hbm@dist}(ilogit(mu[i]))')))}
-#################################################################################
+         'dbern'=str_interp('${hbm@dist}(ilogit(mu[i]))')))})
+ 
 clen=function(data,v,x=1){                                                      #returns counts of factors in each level of hierarchy, take argument of data.frame, vector of col names
-  o=list()                                                                         #define var
-  d=as.numeric(as.factor(data[,v[x]]))                                          #characters to numbers
-  if(x==length(v)){return(length(unique(d)))}                                   #return on final value
-  else{for(i in unique(d)){o[[i]]=(clen(data[d==i,],v,x+1))};return(o)}}          #otherwise repeat for sub-hierarchies 
-#################################################################################
-mlen=function(maxes,lens,index=c(),x=1){
+  o=list()                                                                      
+  d=as.numeric(as.factor(data[,v[x]]))                                          #characters to unique numbers
+  if(x==length(v)){return(length(unique(d)))}                                   #return number of unique values on final level
+  else{for(i in unique(d)){o[[i]]=(clen(data[d==i,],v,x+1))};return(o)}}        #otherwise move down one level
+ 
+mlen=function(maxes,lens,index=c(),x=1){                                        #using clen output, returns corrected counts of factors in each level of hierarchy where missing groups are filled in with zeros, such that the                                                                                 hierarchy can be stored as an n-dimensional array with no missing values, take argument of data.frame, vector of col names
   o=c()
-  if(x==length(maxes)){
-    for(i in index){lens=tryCatch(lens[[i]],error=\(x)0)}
+  if(x==length(maxes)){                                                         #When on final level, iterate through number of items in level
+    for(i in index){lens=tryCatch(lens[[i]],error=\(x)0)}                       #return value for each cell of array, zero when cell not occupied
     return(lens)}
-  else{for(i in 1:maxes[x]){
+  else{for(i in 1:maxes[x]){                                                    #Otherwise, move to next level
     o=c(o,mlen(maxes,lens,c(index,i),x+1))}}
   return(o)}        #otherwise repeat for sub-hierarchies 
-#################################################################################
+ 
 flip=function(x){                                                               #takes a named vector and returns vector of names, now named for the values they represent in original vector
   if(is.list(x)){x=x[[1]]}                                                      #edge use case
-  o=data.frame('i'=NA,'name'=NA)                                                #empty data.frame
+  o=data.frame('i'=NA,'name'=NA)                                                
   for(i in 1:length(x)){o=rbind(o,data.frame('i'=x[i],'name'=names(x[i])))}     #iterate through items and append names to frame
   return(with(unique(na.omit(o)),setNames(name,i)))}                            #return renamed names
-#################################################################################
-items=function(data,v){                                                     #recursive function for generating named list from data.frame columns, take argument of dataframe, vector of col names                                                                       #define var
-  d=as.numeric(as.factor(data[,v]))                                          #characters to numbers
-  d=setNames(d,gsub('^.+_<>_','',data[,v]))                                                     #rename based on original values
-  return(d)}                                                           ###         #otherwise repeat for sub-hierarchies
-#################################################################################
-bsem=function(model,data,...){                                                   #write and compute Bayesian structural equation models, takes arguments of model string, data, directory to save to
-  output=new('bsem_object')
-  param=list(...)
-  defaults=list('name'        ='unnamed_hbm',
+ 
+items=function(data,v){                                                         #function for generating named list from data.frame columns, take argument of data.frame, vector of col names                         
+  d=as.numeric(as.factor(data[,v]))                                             #characters to unique numbers
+  d=setNames(d,gsub('^.+_<>_','',data[,v]))                                     #rename based on original values
+  return(d)}                                                           
+ 
+bsem=function(model,data,...){                                                  #write and compute Bayesian structural equation models, takes arguments of model string, data, directory to save to
+  output=new('bsem_object')                                                     #new object
+  param=list(...)                                                               #extract input
+  defaults=list('name'        ='unnamed_hbm',                                   #define default values for class slots
                 'model_name'  ='unnamed_model',
                 'dir'         ='.',
                 'dist'        ='dnorm',
@@ -176,44 +177,44 @@ bsem=function(model,data,...){                                                  
                 'source_model'='',
                 'format'      ='difference')
   
-  default=c(list('data' =data,
+  default=c(list('data' =data,                                                  #apply default values to list when no value supplied in call
                  'input'=match.call(expand.dots=T)),
                  'model'=model,
             lapply(names(defaults),\(x)ifelse(is.null(param[[x]]),
                                               defaults[[x]],
                                               param[[x]]))|>
               setNames(names(defaults)))
-  for(d in names(default)){
+  for(d in names(default)){                                                     #apply values to slots of BSEM object
     if(class(default[[d]])==class(slot(output,d))){slot(output,d)=default[[d]]}
     else{
       cat('Invalid input for variable "',d,'"\n',sep='')
       return()}}
 
-  output=tryCatch(write_bsem(output),error=\(x){print(x);return(output)})
+  output=tryCatch(write_bsem(output),error=\(x){print(x);return(output)})       #write BSEM model
   
-  output@model_data=list('N'=nrow(output@data))
-  for(o in unique(output@variables)){output@model_data=c(output@model_data,
+  output@model_data=list('N'=nrow(output@data))                                 #Generate model input data 
+  for(o in unique(output@variables)){output@model_data=c(output@model_data,     #For each modeled variable, extract from input data
                                      setNames(list(output@data[,o]),
                                               paste('y.',o,sep='')))}
   
-  output=tryCatch(run_model(output),error=function(e){print(e);return(output)})
+  output=tryCatch(run_model(output),error=function(e){print(e);return(output)}) #run model
   
   cat('\nMaking trace plots\n')
-  tryCatch(traces(output,0),error=function(e){print(e)})
+  tryCatch(traces(output,0),error=function(e){print(e)})                        #export trace-plots
   return(output)}
-#################################################################################
-setGeneric('write_bsem',function(hbm) standardGeneric('write_bsem'))
+ 
+setGeneric('write_bsem',function(hbm) standardGeneric('write_bsem'))            #function to write generalized models for BSEMs based on input formula
 setMethod('write_bsem','model_data',function(hbm){
-  rows=str_split(hbm@model,'\n')[[1]]
+  rows=str_split(hbm@model,'\n')[[1]]                                           #collect separate rows from input model
   row=c();lefts=c();rights=c();old=c()
-  for(r in 1:length(rows)){
-    item=c(LETTERS,letters)[r]
-    rights=c(rights,paste(item,'[1]',sep=''))
-    groups=str_split(rows[r],'~')[[1]]
-    left=paste(groups[1],'[i]',sep='')
+  for(r in 1:length(rows)){                                                     
+    item=c(LETTERS,letters)[r]                                                  #52 length array of letter for item names
+    rights=c(rights,paste(item,'[1]',sep=''))                                   #paste letter with index marker
+    groups=str_split(rows[r],'~')[[1]]                                          #separate path variables
+    left=paste(groups[1],'[i]',sep='')                                          #paste path variable with index marker
     lefts=c(lefts,left)
     old=c(old,groups[1])
-    Right=str_split(groups[2],'\\+')[[1]]
+    Right=str_split(groups[2],'\\+')[[1]]                                       #extract each side of each path
     new=c(paste(item,'[1]',sep=''))
     
     for(i in 1:length(Right)){
@@ -264,11 +265,11 @@ setMethod('write_bsem','model_data',function(hbm){
   return(hbm)
 })
 
-#################################################################################
+ 
 setGeneric("fits", function(obj,...) standardGeneric("fits"))
-setMethod("fits",'run_model',function(obj,...){                               #summaries fit measures for Bayesian models, takes arguments of one or more model outputs
+setMethod("fits",'run_model',function(obj,...){                                 #summaries for fit measures for Bayesian models, takes arguments of one or more model outputs
   mc=match.call(expand.dots=T)
-  mods=c(list(obj@jags_model),list(...))
+  mods=c(list(obj),list(...))
   out=data.frame('response'=NA,'ppp'=NA,'DIC'=NA,
                  'names'=NA,'intercept'=NA,'slope'=NA,'r'=NA)
   if(length(mods)>1){
@@ -300,7 +301,7 @@ setMethod("fits",'run_model',function(obj,...){                               #s
       g=g+2}
     par(mfrow=c(1,1))}
   return(na.omit(out))})
-#################################################################################
+ 
 ddic=function(mod){                                                             #compares model fits, DIC for bsems, takes argument of frame of fit outputs
   if(class(mod)!='data.frame'){cat('Not output of fits()\n')}
   else{
@@ -316,14 +317,14 @@ ddic=function(mod){                                                             
           out=rbind(out,data.frame('name'=paste(n[i],n[j],sep=' - '),
                                    'delta_DIC'=dics[i]-dics[j]))}}}
     return(na.omit(out))}}
-#################################################################################
+ 
 pastedown=function(data,vars){
   lnext=data[,vars[1]]
   for(col in vars[-1]){
     lnext=paste(lnext,data[,col],sep='_<>_')
     data[,col]=lnext}
   return(data)}
-#################################################################################
+ 
 setGeneric("format_data", function(hbm) standardGeneric("format_data"))
 setMethod("format_data","hbm_object",function(hbm){
   hbm@model_data=list('N'=nrow(hbm@data))
@@ -383,7 +384,7 @@ setMethod("format_data","hbm_object",function(hbm){
         hbm@scales[[m]]=1
         hbm@model_data[[m]]=as.numeric(hbm@model_data[[m]])}}}
   return(hbm)})
-#################################################################################
+ 
 setGeneric("format_model", function(hbm) standardGeneric("format_model"))
 setMethod("format_model","hbm_object",function(hbm){
   vars=hbm@vars[[2]][-1]
@@ -530,7 +531,7 @@ setMethod("format_model","hbm_object",function(hbm){
       count=count+1
       progress(count/length(unique(names(filter))),50)}}
   return(hbm)})
-#################################################################################
+ 
 setGeneric("run_model", function(hbm) standardGeneric("run_model"))
 setMethod("run_model","hbm_object",function(hbm){
   cat('from',paste(hbm@model_dir,'/',
@@ -565,7 +566,7 @@ setMethod("run_model","bsem_object",function(hbm){
                               parameters.to.save=hbm@save,
                               verbose=T)
   return(hbm)})
-#################################################################################
+ 
 setGeneric("write_model", function(hbm) standardGeneric("write_model"))
 setMethod("write_model","hbm_object",function(hbm){
   slot(hbm,'variables')=c(as.character(hbm@input$model)[2],
@@ -724,7 +725,7 @@ setMethod("write_model","hbm_object",function(hbm){
   for(i in rv){hbm@save=c(hbm@save,i)}
   hbm@save=gsub('\\[.+\\]','',hbm@save)
   return(hbm)})
-#################################################################################
+ 
 hbm=function(data,model,...){
   output=new('hbm_object')
   param=list(...)
@@ -778,7 +779,7 @@ hbm=function(data,model,...){
           paste(output@input,collapse = ' '),'\n',rep('#',50),'\n',sep='')
       break}}
   return(output)}
-#################################################################################
+ 
 wave=function(data,var,s){                                                      #create single distribution plots, takes argument of model output, focal variables, scale
   lowers=names(data)[!(names(data)%in%c(var$var,           #only look at overall effect in lower levels
                                  'upper','lower','response'))]
@@ -852,7 +853,7 @@ setMethod("ocean","data.frame",function(hbm,vars='',fill='lower',s=1,interaction
       else{if(v$var[2]=='upper'){out[[g]]=wave(h,v,s)}
         else{out[[g]]=wave2(h,v,s)}}}}
   return(unlist(out, recursive = FALSE))})
-#################################################################################
+ 
 dotplot=function(data,var,s){                                                   #create single dotplot, takes argument of model output, focal variables, scale
   lowers=names(data)[!(names(data)%in%c(var$var,           #only look at overall effect in lower levels
                                         'upper','lower','response'))]
@@ -949,7 +950,7 @@ setMethod("polka","data.frame",function(hbm,vars='',fill='lower',s=1,interaction
       else{if(v$var[2]=='upper'){out[[g]]=dotplot(h,v,s)}
         else{out[[g]]=dotplot2(h,v,s)}}}}
   return(out)})
-#################################################################################
+ 
 setGeneric("hbmgroup", function(hbm,...) standardGeneric("hbmgroup"))
 setMethod("hbmgroup","hbm_object",function(hbm,groups){                         #Selects specific subsets of data based on focal group, takes arguments of model output, focal groups
   v=hbm@vars[[2]]
@@ -979,7 +980,7 @@ mgroup=function(data,groups){                                                   
     else{h=rbind(h,hbmgroup(data,c(g)))}}
   return(h)}
 
-#################################################################################
+ 
 cello=function(data,var,s,label='none',lsize=1){                                #create single violin plot with CI bars, takes argument of model output, focal variables, scale
   lowers=names(data)[!(names(data)%in%c(var$var,           #only look at overall effect in lower levels
                                         'upper','lower','response'))]
@@ -1086,7 +1087,7 @@ setMethod("bass","data.frame",function(hbm,groups='',fill='lower',s=1,label='non
       else{if(v$var[2]=='upper'){out[[g]]=cello(h,v,s,label=label,lsize=lsize)}
         else{out[[g]]=cello2(h,v,s)}}}}
   return(out)})
-#################################################################################
+ 
 setMethod("resid","hbm_object",function(object){
   sims=object@jags_model$sims.list
   n=names(sims)

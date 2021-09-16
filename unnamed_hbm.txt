@@ -1,0 +1,24 @@
+model{
+for(i in 1:N){
+	survival[i]~dbern(ilogit(mu[i]))
+	survival.sim[i]~dbern(ilogit(mu[i]))
+	survival.res[i]=survival[i]-mu[i]
+	survival.sres[i]=survival.sim[i]-mu[i]
+	mu[i]=alpha+alpha_site[site[i]]+
+	(beta_mass+beta_mass_site[site[i]])*mass[i]}
+for(a in 1:Nsite){
+	alpha_site[a]~dnorm(0,atau_site)
+	beta_mass_site[a]~dnorm(0,tau_site)}
+sigma~dunif(0,100)
+tau=1/(sigma*sigma)
+sigma_site~dunif(0,100)
+tau_site=1/(sigma_site*sigma_site)
+asigma~dunif(0,100)
+atau=1/(sigma*sigma)
+asigma_site~dunif(0,100)
+atau_site=1/(sigma_site*sigma_site)
+alpha~dnorm(0,0.01)
+beta_mass~dnorm(0,0.01)
+survival.fit=sum(pow(survival.res[],2))
+survival.sfit=sum(pow(survival.sres[],2))
+}
