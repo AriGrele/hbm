@@ -1,4 +1,4 @@
-cat('\nLast updated 2021/09/12\n')
+cat('\nLast updated 2021/10/08\n')
 library(stringr);library(jagsUI);library(ggplot2)
 library(reshape2);library(cowplot)
  
@@ -653,7 +653,7 @@ setMethod("write_model","hbm_object",function(hbm){
       int=paste('(',paste(int,collapse='+'),')*',item,'[i]',sep='')
       rn=c(rn,paste(int))}}
   
-  top=str_interp("for(i in 1:N){\n\t${left}\n\tmu[i]=${paste(rn[formfilter],collapse='+')}+\n\t${paste(right,collapse='+\n\t')}}")
+  top=str_interp("for(i in 1:N){\n\t${left}\n\tmu[i]=${paste(rn,collapse='+')}+\n\t${paste(right,collapse='+\n\t')}}") #removed formfilter from rn[], may affect mean format
   hbm@formula=paste(paste(rn,collapse='+'),paste(right,collapse='+'),sep='+')
   s=t=c()
   rv=c(rv,rn_ints)
