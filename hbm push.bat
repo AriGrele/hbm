@@ -1,3 +1,5 @@
+@echo off
+set /P mes=Message? 
 git add .
-git commit -m "up to date"
-git push origin HEAD:main
+git commit -m %mes%
+git push origin HEAD:master
